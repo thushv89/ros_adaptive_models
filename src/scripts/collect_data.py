@@ -59,7 +59,10 @@ def callback_cam(msg):
             (_,_,utils.CURR_YAW) = tf.transformations.euler_from_quaternion(utils.CURR_ORI)
             if utils.PREV_YAW is None:
                 utils.PREV_YAW = utils.CURR_YAW
-            utils.LABEL_BUFFER.append([utils.PERSIST_INDEX,utils.CURR_YAW-utils.PREV_YAW])
+            # currently using absolute YAW
+            # used to use the relative YAW w.r.t previous image,
+            # but that makes the labels dependent on the previous image making labels dependent on the path it took
+            utils.LABEL_BUFFER.append([utils.PERSIST_INDEX,utils.CURR_YAW])
             utils.POSE_BUFFER.append([utils.PERSIST_INDEX, list(utils.CURR_POSI + utils.CURR_ORI)])
             logger.info("Collecting data (Buffer: %d) ..",len(utils.IMG_BUFFER))
             utils.PERSIST_INDEX += 1
@@ -134,6 +137,32 @@ def save_image(img_data_with_id):
     im = im.resize((utils.THUMBNAIL_W,utils.THUMBNAIL_H))
     sm.imsave(utils.IMG_DIR + os.sep + 'img_' +str(id) + ".png",im)
 
+def dump_bytes_to_pickle():
+    copy_cam_data = deepcopy(utils.IMG_BUFFER)
+    copy_pose_data = deepcopy(utils.POSE_BUFFER)
+    copy_label_data = deepcopy(utils.LABEL_BUFFER)
+    utils.IMG_BUFFER = []
+    utils.POSE_BUFFER = []
+    utils.LABEL_BUFFER = []
+
+    logger.info("Storage summary for episode %s", utils.PERSIST_INDEX)
+    logger.info('\tImage count: %s\n', len(copy_cam_data))
+    logger.info("\tPose count: %s", len(copy_pose_data))
+
+    if utils.IMG_DIR is not None:
+        try:
+            pool = Pool(utils.THREADS)
+            pool.map(save_image, copy_cam_data)
+            pool.close()
+            pool.join()
+            pose_string = pose_buffer_to_string(copy_pose_data)
+            poselogger.info(pose_string)
+
+            for index, rel_yaw in copy_label_data:
+                driveAngleLogger.info('%d:%.5f', index, rel_yaw)
+
+        except Exception as e:
+            logger.info(e)
 
 def save_img_sequence_pose():
 
