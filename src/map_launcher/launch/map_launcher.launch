@@ -1,0 +1,9 @@
+<launch>
+<node name="map_server" pkg="multi_map_server" type="multi_map_server" args="$(find map_launcher)/map.yaml">
+<param name="topic_id" value="map"/>
+</node>
+
+<node name="map_server_allowed" pkg="multi_map_server" type="multi_map_server" args="$(find map_launcher)/map_allowed.yaml">
+<param name="topic_id" value="allowed_area"/>
+</node>
+</launch>

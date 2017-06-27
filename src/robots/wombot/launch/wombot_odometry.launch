@@ -1,0 +1,7 @@
+<launch>
+	<node pkg="wombot_utils"
+          type="wombot_odometry"
+          name="wombot_odometry">
+            <param name="broadcast_tf" value="true"/>
+    </node>
+</launch>

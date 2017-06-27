@@ -1,0 +1,10 @@
+build/
+devel/
+.idea/
+frames.pdf
+*~
+*.pyc
+*.png
+*.jpg
+*.log
+*.gv

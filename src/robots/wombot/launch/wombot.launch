@@ -1,0 +1,4 @@
+<launch>
+    <include file="$(find wombot)/launch/wombot_main.launch"/>
+    <include file="$(find wombot)/launch/wombot_sensors.launch"/>
+</launch>

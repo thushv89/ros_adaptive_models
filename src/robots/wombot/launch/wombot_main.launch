@@ -1,0 +1,27 @@
+<launch>
+	
+    <node pkg="rosserial_python" type="serial_node.py" name="arduino_node">
+		<param name="port" value="/dev/arduino" />
+	</node>
+    
+    <node pkg="rostopic"
+          type="rostopic"
+          name="connectedPublisher"
+          args="pub -r 3 wombot/connected std_msgs/Empty">
+    </node>
+
+    <node pkg="cpu_monitor" type="cpu_monitor.py" name="cpu_monitor">
+    </node>
+
+    <node pkg="wombot_utils" type="wombot_speed" name="wombot_speed_translator">
+        <param name="cmd_vel_topic" value="/wombot/cmd_vel"/>
+        <param name="wheel_speed_topic" value="/wombot/wheel_speed"/>
+        <param name="max_linear_speed" value="0.3"/>
+        <param name="max_angular_speed" value="0.1"/>
+        <param name="allow_turning_on_spot" value="false"/>
+    </node>
+    
+    <include file="$(find wombot)/launch/wombot_tf.launch"/>
+    <include file="$(find wombot)/launch/wombot_teleop.launch"/>
+
+</launch>

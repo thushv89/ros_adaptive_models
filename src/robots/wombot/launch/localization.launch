@@ -1,0 +1,15 @@
+<launch>
+    <node pkg="multi_map_server" type="multi_map_server"
+          name="multi_map_server_map"
+          args="/home/roman/ros/maps/b2.yaml" />
+
+    <node pkg="multi_map_server" type="multi_map_server"
+          name="multi_map_server_aa"
+          args="/home/roman/ros/maps/b2_aa.yaml">
+        <param name="topic_id" value="allowed_area"/>
+    </node>
+
+    <include file="hector_slam_odom.launch"/>
+    <include file="amcl.launch"/>
+    <node pkg="speed_estimator" type="speed_estimator_node" name="speed_estimator_node"/>
+</launch>

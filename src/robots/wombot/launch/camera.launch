@@ -1,0 +1,5 @@
+<launch>
+    <!-- Main camera driver -->
+    <node pkg="firefly_camera" type="firefly_camera" name="firefly_camera">
+    </node>
+</launch>

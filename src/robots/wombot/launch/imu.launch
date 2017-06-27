@@ -1,0 +1,14 @@
+<launch>
+    <!-- Main imu driver for yeispace IMU -->
+    <node pkg="yei3space_imu" type="yei3space_node" name="imu_node">
+        <param name="port" value="/dev/imu"/>
+    </node>
+
+    <!-- Roll pitch yaw output generation
+    <node pkg="imu_util"
+          type="quat_to_rpy"
+          name="quat_to_rpy"
+          args="imu rpy">
+    </node>
+    -->
+</launch>
