@@ -10,12 +10,9 @@ from rospy_tutorials.msg import Floats
 import numpy as np
 from PIL import Image as PILImage
 import math
-from rospy.numpy_msg import numpy_msg
 import sys
 import scipy.misc as sm
 import logging
-import threading
-from os import system
 import pickle
 from multiprocessing import Pool
 from copy import deepcopy
@@ -23,6 +20,9 @@ import tf
 import getopt
 import os.path
 import utils
+import os
+import time
+import threading
 
 logger,poselogger,driveAngleLogger = None,None,None
 
@@ -38,9 +38,13 @@ buffer_pose = []
 
 
 image_count = -1 # when image_count%image_skip==0 we add that to buffer
-
+laser_count = -1
 persist_index = 0 # This is the main-index
 
+LASER_RANGE_LEFT,LASER_RANGE_STRAIGHT,LASER_RANGE_RIGHT = None,None,None
+
+reverse_lock = threading.Lock()
+reversing = False
 
 def get_direction_from_yaw(current_angle, rel_angle):
 
@@ -55,39 +59,107 @@ def get_direction_from_yaw(current_angle, rel_angle):
         return 1
 
 def callback_cam(msg):
-    global isMoving
+    global isMoving, reversing
     global image_count
     global logger
 
     image_count += 1
-    if image_count % utils.IMG_SAVE_SKIP != 0:
+    if image_count % utils.BUMP_IMG_SAVE_SKIP != 0:
         return
 
     if utils.IMG_DIR and isMoving:
         try:
             (utils.CURR_POSI, utils.CURR_ORI) = listener.lookupTransform("map", "base_link", rospy.Time(0));
 
-            utils.IMG_BUFFER.append((msg.data, utils.PERSIST_INDEX))
+            if not reversing:
+                utils.IMG_BUFFER.append((msg.data, utils.PERSIST_INDEX))
             # currently using absolute YAW
             # used to use the relative YAW w.r.t previous image,
             # but that makes the labels dependent on the previous image making labels dependent on the path it took
             (_,_,utils.CURR_YAW) = tf.transformations.euler_from_quaternion(utils.CURR_ORI)
-            if utils.PREV_YAW is None:
+
+            if not reversing:
+                if utils.PREV_YAW is None:
+                    utils.PREV_YAW = utils.CURR_YAW
+                utils.LABEL_BUFFER.append([utils.PERSIST_INDEX, utils.CURR_YAW,get_direction_from_yaw(utils.CURR_YAW,utils.CURR_YAW - utils.PREV_YAW)])
                 utils.PREV_YAW = utils.CURR_YAW
 
-            utils.LABEL_BUFFER.append([utils.PERSIST_INDEX, utils.CURR_YAW,get_direction_from_yaw(utils.CURR_YAW,utils.CURR_YAW - utils.PREV_YAW)])
             utils.POSE_BUFFER.append([utils.PERSIST_INDEX, list(utils.CURR_POSI) + list(utils.CURR_ORI)])
 
             logger.info("Collecting data (Buffer: %d) ..",len(utils.IMG_BUFFER))
-            utils.PREV_YAW = utils.CURR_YAW
             utils.PERSIST_INDEX += 1
 
             assert len(utils.LABEL_BUFFER)==len(utils.IMG_BUFFER)
-            if len(utils.IMG_BUFFER)>=utils.IMG_BUFFER_CAP:
-                save_img_sequence_pose()
 
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             logger.info("No transform detected. Not persisting data")
+
+
+def get_laser_ranges():
+    # laser range slicing algorithm
+    if utils.LASER_ANGLE <= 180:
+        laser_slice = int(utils.LASER_POINT_COUNT / 6.)
+        laser_range_left = (0, int(laser_slice))
+        laser_range_straight = (
+        int((utils.LASER_POINT_COUNT / 2.) - laser_slice), int((utils.LASER_POINT_COUNT / 2.) + laser_slice))
+        laser_range_right = (-int(laser_slice), -1)
+
+    # if laser exceeds 180 degrees
+    else:
+        laser_slice = int(((utils.LASER_POINT_COUNT * 1.0 / utils.LASER_ANGLE) * 180.) / 6.)
+        cutoff_angle_per_side = int((utils.LASER_ANGLE - 180) / 2.)
+        ignore_points_per_side = (utils.LASER_POINT_COUNT * 1.0 / utils.LASER_ANGLE) * cutoff_angle_per_side
+        laser_range_left = (int(ignore_points_per_side), int(laser_slice + ignore_points_per_side))
+        laser_range_straight = (
+        int((utils.LASER_POINT_COUNT / 2.) - laser_slice), int((utils.LASER_POINT_COUNT / 2.) + laser_slice))
+        laser_range_right = (-int(laser_slice - ignore_points_per_side), -int(ignore_points_per_side))
+
+    return [laser_range_left,laser_range_straight,laser_range_right]
+
+
+def callback_laser(msg):
+    global reverse_lock, reversing
+    global laser_count
+    global LASER_RANGE_LEFT, LASER_RANGE_STRAIGHT, LASER_RANGE_RIGHT
+
+    laser_count += 1
+    #if laser_count % utils.LASER_SKIP != 0:
+    #    return
+
+    rangesTup = msg.ranges
+    rangesNum = [float(r) for r in rangesTup]
+    rangesNum.reverse()
+
+    bump_thresh_1 = utils.BUMP_1_THRESH
+    bump_thresh_0_2 = utils.BUMP_02_THRESH
+
+    # print "took laser %s,%s,%s"%(got_action,isMoving,reversing)
+    filtered_ranges = np.asarray(rangesNum)
+    filtered_ranges[filtered_ranges < utils.NO_RETURN_THRESH] = 1000
+
+    logger.debug("Min range recorded:%.4f", np.min(filtered_ranges))
+
+    # middle part of laser [45:75]
+    if (not reversing) and (np.min(filtered_ranges[LASER_RANGE_STRAIGHT[0]:LASER_RANGE_STRAIGHT[1]]) < bump_thresh_1 or \
+                    np.min(filtered_ranges[LASER_RANGE_LEFT[0]:LASER_RANGE_LEFT[1]]) < bump_thresh_0_2 or \
+                    np.min(filtered_ranges[LASER_RANGE_RIGHT[0]:LASER_RANGE_RIGHT[1]]) < bump_thresh_0_2):
+
+        logger.debug("setting Obstacle to True")
+        for buf_i in range(len(utils.IMG_BUFFER)-utils.BUMP_LABEL_LENGTH,len(utils.IMG_BUFFER)):
+            utils.BUMP_IMG_BUFFER.append(utils.IMG_BUFFER[buf_i])
+            utils.BUMP_LABEL_BUFFER.append(utils.LABEL_BUFFER[buf_i])
+
+        utils.IMG_BUFFER = []
+        utils.LABEL_BUFFER = []
+        if len(utils.BUMP_IMG_BUFFER)>=utils.BUMP_IMG_BUFFER_CAP:
+            save_img_sequence_pose()
+
+        reversing = True
+        logger.debug('Reverse lock acquired ...')
+
+        time.sleep(utils.REVERSE_TIME_OUT)
+        logger.debug('Releasing the reverse lock ...')
+        reversing = False
 
 
 def callback_odom(msg):
@@ -151,17 +223,17 @@ def save_image(img_data_with_id):
 
     im = PILImage.fromarray(img_np_2.astype(np.uint8))
     im = im.resize((utils.THUMBNAIL_W,utils.THUMBNAIL_H))
-    sm.imsave(utils.IMG_DIR + os.sep + 'img_' +str(id) + ".png",im)
+    sm.imsave(utils.IMG_DIR + os.sep + 'bump_img_' +str(id) + ".png",im)
 
 
 def save_img_sequence_pose():
 
-    copy_cam_data = deepcopy(utils.IMG_BUFFER)
+    copy_cam_data = deepcopy(utils.BUMP_IMG_BUFFER)
     copy_pose_data = deepcopy(utils.POSE_BUFFER)
-    copy_label_data = deepcopy(utils.LABEL_BUFFER)
-    utils.IMG_BUFFER = []
+    copy_label_data = deepcopy(utils.BUMP_LABEL_BUFFER)
+    utils.BUMP_IMG_BUFFER = []
     utils.POSE_BUFFER = []
-    utils.LABEL_BUFFER = []
+    utils.BUMP_LABEL_BUFFER = []
 
     logger.info("Storage summary for episode %s", utils.PERSIST_INDEX)
     logger.info('\tImage count: %s\n', len(copy_cam_data))
@@ -194,6 +266,7 @@ def pose_buffer_to_string(pose_data):
 
 
 if __name__=='__main__':
+    global LASER_RANGE_LEFT, LASER_RANGE_STRAIGHT, LASER_RANGE_RIGHT
 
     try:
         opts, args = getopt.getopt(
@@ -217,6 +290,8 @@ if __name__=='__main__':
                 else:
                     raise NotImplementedError
 
+    LASER_RANGE_LEFT, LASER_RANGE_STRAIGHT, LASER_RANGE_RIGHT = get_laser_ranges()
+
     logger = logging.getLogger('Logger')
     logger.setLevel(logging.DEBUG)
     console = logging.StreamHandler(sys.stdout)
@@ -232,14 +307,14 @@ if __name__=='__main__':
 
     poselogger = logging.getLogger('PoseLogger')
     poselogger.setLevel(logging.INFO)
-    fh = logging.FileHandler(utils.IMG_DIR + os.sep + 'pose_log.log', mode='w')
+    fh = logging.FileHandler(utils.IMG_DIR + os.sep + 'bump_pose_log.log', mode='w')
     fh.setFormatter(logging.Formatter('%(message)s'))
     fh.setLevel(logging.INFO)
     poselogger.addHandler(fh)
 
     driveAngleLogger = logging.getLogger('DriveAngleLogger')
     driveAngleLogger.setLevel(logging.INFO)
-    anglefh = logging.FileHandler(utils.IMG_DIR + os.sep + 'drive_angle_log.log', mode='w')
+    anglefh = logging.FileHandler(utils.IMG_DIR + os.sep + 'bump_drive_angle_log.log', mode='w')
     anglefh.setFormatter(logging.Formatter('%(message)s'))
     anglefh.setLevel(logging.INFO)
     driveAngleLogger.addHandler(anglefh)
@@ -252,6 +327,7 @@ if __name__=='__main__':
     #sent_label_pub = rospy.Publisher(utils.DATA_LABEL_TOPIC, numpy_msg(Floats), queue_size=10)
     #obstacle_status_pub = rospy.Publisher(utils.OBSTACLE_STATUS_TOPIC, Bool, queue_size=10)
 
+    rospy.Subscriber(utils.LASER_SCAN_TOPIC, LaserScan, callback_laser)
     rospy.Subscriber(utils.CAMERA_IMAGE_TOPIC, Image, callback_cam)
     rospy.Subscriber(utils.ODOM_TOPIC, Odometry, callback_odom)
 
