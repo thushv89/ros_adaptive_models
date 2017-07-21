@@ -47,18 +47,20 @@ def build_tensorflw_variables():
                 # the variable exists, you will get a ValueError saying the variable exists
 
                 try:
+                    direction = ['left', 'straight', 'right']
+                    for di in direction:
+                        with tf.variable_scope(di):
+                            tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_DETACHED[scope],
+                                                      initializer=tf.truncated_normal_initializer(stddev=0.02,dtype=tf.float32))
+                            tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_DETACHED[scope][-1],
+                                                   initializer = tf.constant_initializer(0.001,dtype=tf.float32))
 
-                        tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES[scope],
-                                                  initializer=tf.truncated_normal_initializer(stddev=0.02,dtype=tf.float32))
-                        tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES[scope][-1],
-                                               initializer = tf.constant_initializer(0.001,dtype=tf.float32))
-
-                        with tf.variable_scope(config.TF_WEIGHTS_STR):
-                            tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES[scope],
-                                            initializer = tf.constant_initializer(0,dtype=tf.float32))
-                        with tf.variable_scope(config.TF_BIAS_STR):
-                            tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES[scope][-1],
-                                            initializer = tf.constant_initializer(0,dtype=tf.float32))
+                            with tf.variable_scope(config.TF_WEIGHTS_STR):
+                                tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_DETACHED[scope],
+                                                initializer = tf.constant_initializer(0,dtype=tf.float32))
+                            with tf.variable_scope(config.TF_BIAS_STR):
+                                tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_DETACHED[scope][-1],
+                                                initializer = tf.constant_initializer(0,dtype=tf.float32))
 
                 except ValueError as e:
                     logger.critical(e)
@@ -67,7 +69,7 @@ def build_tensorflw_variables():
         print([v.name for v in tf.global_variables()])
 
 
-def logits(tf_inputs,tf_labels,collision):
+def logits_detached(tf_inputs, tf_labels, collision, direction):
     '''
     Inferencing the model. The input (tf_inputs) is propagated through convolutions poolings
     fully-connected layers to obtain the final softmax output
@@ -76,13 +78,13 @@ def logits(tf_inputs,tf_labels,collision):
     '''
     global logger
     logger.info('Defining inference ops ...')
-    index_to_keep = None
+    all_directions = ['left', 'straight', 'right']
     with tf.name_scope('infer'):
         for si, scope in enumerate(config.TF_ANG_SCOPES):
             with tf.variable_scope(scope,reuse=True) as sc:
-                weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
 
                 if 'conv' in scope:
+                    weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
                     logger.info('\t\tConvolution with ReLU activation for %s',scope)
                     if si == 0:
                         h = tf.nn.relu(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,name='hidden')
@@ -94,22 +96,18 @@ def logits(tf_inputs,tf_labels,collision):
                     if scope == 'out':
                         logger.info('\t\tFully-connected with output Logits for %s',scope)
                         if tf_labels is not None:
-                            if not collision:
-                                index_to_keep = tf.cast(tf.reduce_mean(tf.argmax(tf_labels, axis=1)), dtype=tf.int32)
-                            else:
-                                index_to_keep = tf.cast(tf.reduce_mean(tf.argmin(tf_labels, axis=1)), dtype=tf.int32)
-
-                            transposed_masked_weights = tf.gather_nd(tf.transpose(weight),[[index_to_keep]])
-                            masked_bias = tf.gather(bias,[index_to_keep])
-                            h = tf.matmul(h, tf.transpose(transposed_masked_weights)) + masked_bias
-                            h = tf.squeeze(h,name='hidden_squeezed')
+                            with tf.variable_scope(direction,reuse=True):
+                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                                h = tf.matmul(h, weights) + bias
+                                h = tf.squeeze(h,name='hidden_squeeze')
 
                         else:
                             h_out_list = []
-                            for n_i in range(config.TF_NUM_CLASSES):
-                                transposed_masked_weights = tf.gather_nd(tf.transpose(weight), [[n_i]])
-                                masked_bias = tf.gather(bias, [n_i])
-                                h_out_list.append(tf.matmul(h_list[n_i], tf.transpose(transposed_masked_weights)) + masked_bias)
+                            for di in all_directions:
+                                with tf.variable_scope(di, reuse=True):
+                                    weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                                        config.TF_BIAS_STR)
+                                    h_out_list.append(tf.matmul(h_list[di], weights) + bias)
 
                             h = tf.squeeze(tf.stack(h_out_list,axis=1))
 
@@ -119,25 +117,18 @@ def logits(tf_inputs,tf_labels,collision):
                             logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
                             h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
                             if tf_labels is not None:
-                                if not collision:
-                                    index_to_keep = tf.cast(tf.reduce_mean(tf.argmax(tf_labels, axis=1)),
-                                                            dtype=tf.int32)
-                                else:
-                                    index_to_keep = tf.cast(tf.reduce_mean(tf.argmin(tf_labels, axis=1)),
-                                                            dtype=tf.int32)
-
-                                transposed_masked_weights = tf.gather_nd(tf.transpose(weight), tf.expand_dims(tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS),axis=-1))
-                                masked_bias = tf.gather(bias, [tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS)])
-                                h = tf.nn.relu(tf.matmul(h, tf.transpose(transposed_masked_weights)) + masked_bias)
+                                with tf.variable_scope(direction, reuse=True):
+                                    weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                                        config.TF_BIAS_STR)
+                                    h = tf.nn.relu(tf.matmul(h, weights) + bias)
 
                             else:
-                                h_list = []
-                                for n_i in range(config.TF_NUM_CLASSES):
-                                    transposed_masked_weights = tf.gather_nd(tf.transpose(weight),
-                                        tf.expand_dims(tf.range(n_i * config.FC1_WEIGHTS, (n_i + 1) * config.FC1_WEIGHTS),axis=-1))
-                                    masked_bias = tf.gather(bias,
-                                                            [tf.range(n_i * config.FC1_WEIGHTS, (n_i + 1) * config.FC1_WEIGHTS)])
-                                    h_list.append(tf.nn.relu(tf.matmul(h, tf.transpose(transposed_masked_weights)) + masked_bias))
+                                h_list = {}
+                                for di in all_directions:
+                                    with tf.variable_scope(di, reuse=True):
+                                        weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                                            config.TF_BIAS_STR)
+                                        h_list[di]=tf.nn.relu(tf.matmul(h, weights) + bias)
 
                         else:
                             raise NotImplementedError
@@ -153,97 +144,63 @@ def predictions_with_logits(logits):
 
 
 def predictions_with_inputs(tf_inputs):
-    tf_logits = logits(tf_inputs,None,False)
+    tf_logits = logits_detached(tf_inputs,tf_labels=None,collision=False,direction=None)
     return tf.nn.sigmoid(tf_logits)
 
 
 def calculate_hybrid_loss(tf_noncol_inputs,tf_noncol_labels,tf_col_inputs,tf_col_labels):
-    tf_col_out = logits(tf_col_inputs,tf_col_labels,True)
-    tf_noncol_out = logits(tf_noncol_inputs,tf_noncol_labels,False)
-
-    tf_col_arg = tf.cast(tf.reduce_min(tf_col_labels, axis=1), dtype=tf.float32)
-    tf_noncol_arg = tf.cast(tf.reduce_max(tf_noncol_labels, axis=1), dtype=tf.float32)
-
-    loss = tf.reduce_mean((tf.nn.sigmoid(tf_col_out) - tf_col_arg)**2 + (tf.nn.sigmoid(tf_noncol_out) - tf_noncol_arg)**2)
-    return loss
+    raise NotImplementedError
 
 
-def calculate_loss(tf_inputs,tf_labels,collision):
+def calculate_loss(tf_inputs,tf_labels,collision,direction):
 
-    tf_out = logits(tf_inputs,tf_labels,collision)
+    tf_out = logits_detached(tf_inputs,tf_labels,collision=collision,direction=direction)
     if collision:
         tf_labels_arg = tf.cast(tf.reduce_min(tf_labels,axis=1),dtype=tf.float32)
     else:
         tf_labels_arg = tf.cast(tf.reduce_max(tf_labels,axis=1),dtype=tf.float32)
-    #loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_out, labels=tf_labels_arg))
-    loss = tf.reduce_mean((tf.nn.sigmoid(tf_out) - tf_labels_arg)**2)
+    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_out, labels=tf_labels_arg))
+    #loss = tf.reduce_mean((tf.nn.sigmoid(tf_out) - tf_labels_arg)**2)
     return loss,tf_out,tf_labels_arg
 
 
-def optimize_model(loss, tf_labels, global_step,increment_global_step, use_masking,collision):
-    momentum = 0.01
+def optimize_model(loss, tf_labels, global_step,increment_global_step, collision, direction):
+    momentum = 0.0
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.08, global_step, decay_steps=500, decay_rate=0.95, staircase=True,
+        tf.train.exponential_decay(0.01, global_step, decay_steps=500, decay_rate=0.95, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
-
-    if use_masking:
-        if not collision:
-            index_to_keep = tf.cast(tf.reduce_mean(tf.argmax(tf_labels, axis=1)),
-                                    dtype=tf.int32)
-        else:
-            index_to_keep = tf.cast(tf.reduce_mean(tf.argmin(tf_labels, axis=1)),
-                                    dtype=tf.int32)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     for si, scope in enumerate(config.TF_ANG_SCOPES):
         with tf.variable_scope(scope,reuse=True):
-            w,b = tf.get_variable(config.TF_WEIGHTS_STR),tf.get_variable(config.TF_BIAS_STR)
-            [(g_w,w),(g_b,b)] = optimizer.compute_gradients(loss,[w,b])
 
-            with tf.variable_scope(config.TF_WEIGHTS_STR,reuse=True):
-                w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
-                if use_masking and scope == 'fc1':
-                    mask_vel = tf.transpose(tf.scatter_nd(tf.expand_dims(
-                        tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS),axis=-1),
-                        tf.ones([config.FC1_WEIGHTS,config.TF_ANG_VAR_SHAPES['fc1'][0]],dtype=tf.float32),
-                        [config.TF_ANG_VAR_SHAPES['fc1'][1],config.TF_ANG_VAR_SHAPES['fc1'][0]])
-                    )
-                    mom_update_ops.append(tf.assign(w_vel,(momentum*w_vel + g_w)*mask_vel))
-                elif use_masking and scope == 'out':
-                    mask_vel = tf.transpose(
-                        tf.scatter_nd([[index_to_keep]],tf.ones([1,config.FC1_WEIGHTS],dtype=tf.float32),
-                                      [config.TF_ANG_VAR_SHAPES['out'][1],config.TF_ANG_VAR_SHAPES['out'][0]])
-                    )
-                    mom_update_ops.append(tf.assign(w_vel, (momentum * w_vel + g_w) * mask_vel))
-                else:
-                    mom_update_ops.append(tf.assign(w_vel, momentum * w_vel + g_w))
-                grads_and_vars.append((w_vel * learning_rate, w))
-            with tf.variable_scope(config.TF_BIAS_STR,reuse=True):
-                # TODO: MASKING FOR BIAS
-                b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
-                if use_masking and scope=='fc1':
-                    mask_vel = tf.scatter_nd(tf.expand_dims(
-                        tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS),axis=-1),
-                        tf.ones([config.FC1_WEIGHTS], dtype=tf.float32),
-                        [config.TF_ANG_VAR_SHAPES['fc1'][1]]
-                    )
-                    mom_update_ops.append(tf.assign(b_vel, (momentum * b_vel + g_b) * mask_vel))
-                elif use_masking and scope=='out':
-                    mask_vel = tf.scatter_nd([[index_to_keep]],tf.ones([1],dtype=tf.float32),[config.TF_ANG_VAR_SHAPES['out'][1]])
-                    mom_update_ops.append(tf.assign(b_vel, (momentum * b_vel + g_b)*mask_vel))
-                else:
-                    mom_update_ops.append(tf.assign(b_vel,momentum*b_vel + g_b))
-                grads_and_vars.append((b_vel * learning_rate, b))
+            if scope == 'fc1' or scope == 'out':
+                with tf.variable_scope(direction, reuse=True):
+                    w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                    [(g_w, w), (g_b, b)] = optimizer.compute_gradients(loss, [w, b])
+
+                    with tf.variable_scope(config.TF_WEIGHTS_STR,reuse=True):
+                        w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                    with tf.variable_scope(config.TF_BIAS_STR,reuse=True):
+                        b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+            else:
+                w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                [(g_w, w), (g_b, b)] = optimizer.compute_gradients(loss, [w, b])
+                with tf.variable_scope(config.TF_WEIGHTS_STR, reuse=True):
+                    w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                with tf.variable_scope(config.TF_BIAS_STR, reuse=True):
+                    b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
+            mom_update_ops.append(tf.assign(w_vel, momentum * w_vel + g_w))
+            grads_and_vars.append((w_vel * learning_rate, w))
+            mom_update_ops.append(tf.assign(b_vel,momentum*b_vel + g_b))
+            grads_and_vars.append((b_vel * learning_rate, b))
 
     if increment_global_step:
-        #optimize = tf.train.AdamOptimizer(beta1=0.9,learning_rate=learning_rate).minimize(loss,global_step=global_step)
-        #optimize = tf.train.MomentumOptimizer(momentum=tf.constant(0.9,dtype=tf.float32), learning_rate=learning_rate).minimize(loss,global_step=global_step)
         optimize = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
     else:
-        #optimize = tf.train.AdamOptimizer(beta1=0.9, learning_rate=learning_rate).minimize(loss)
-        #optimize = tf.train.MomentumOptimizer(momentum=tf.constant(0.9,dtype=tf.float32), learning_rate=learning_rate).minimize(loss)
         optimize = optimizer.apply_gradients(grads_and_vars)
 
     #optimize = tf.train.MomentumOptimizer(momentum=0.9, learning_rate=learning_rate).minimize(loss)
@@ -268,6 +225,7 @@ if __name__ == '__main__':
     if IMG_DIR and not os.path.exists(IMG_DIR):
         os.mkdir(IMG_DIR)
 
+    config.DETACHED_TOP_LAYERS = True
     dataset_filenames = {'train_dataset':{'left':[
                                                   '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-0.tfrecords' % i
                                                   for i in range(1)
@@ -366,21 +324,21 @@ if __name__ == '__main__':
                 training_data=False, use_opposite_label=True,inputs_for_sdae=False)
 
             tf_loss[direction], tf_logits[direction], \
-            tf_labels_arg[direction] = calculate_loss(tf_images[direction], tf_labels[direction], collision=False)
+            tf_labels_arg[direction] = calculate_loss(tf_images[direction], tf_labels[direction], collision=False,direction=direction)
 
             if not config.OPTIMIZE_HYBRID_LOSS:
                 tf_bump_loss[direction], tf_bump_logits[direction], \
-                tf_bump_labels_arg[direction] = calculate_loss(tf_bump_images[direction], tf_bump_labels[direction], collision=True)
+                tf_bump_labels_arg[direction] = calculate_loss(tf_bump_images[direction], tf_bump_labels[direction], collision=True, direction=direction)
 
                 tf_optimize[direction], tf_mom_update_ops[direction], tf_grads[direction] = optimize_model(tf_loss[direction], tf_labels[direction],
                                                                                                            global_step, increment_global_step=True,
-                                                                                                           use_masking=False,collision=False)
+                                                                                                           collision=False,direction=direction)
                 tf_bump_optimize[direction], tf_bump_mom_update_ops[direction], tf_bump_grads[direction] = optimize_model(tf_bump_loss[direction], tf_labels[direction],
                                                                                                                           global_step,increment_global_step=False,
-                                                                                                                          use_masking=False,collision=True)
+                                                                                                                          collision=True,direction=direction)
             else:
-                tf_loss[direction] = calculate_hybrid_loss(tf_images[direction],tf_labels[direction],tf_bump_images[direction],tf_bump_labels[direction])
-                tf_optimize[direction], tf_mom_update_ops[direction], tf_grads[direction] = optimize_model(tf_loss[direction],None,global_step,increment_global_step=True,use_masking=False,collision=False)
+                # TODO
+                raise NotImplementedError
 
             tf_train_predictions[direction] = predictions_with_inputs(tf_images[direction])
             tf_train_bump_predictions[direction] = predictions_with_inputs(tf_bump_images[direction])
@@ -418,27 +376,6 @@ if __name__ == '__main__':
                     l1, _, _, pred,train_labels = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction],tf_mom_update_ops[rand_direction],
                                                                         tf_train_predictions[rand_direction],tf_labels[rand_direction]])
 
-                    '''logger.debug('%s;%d', rand_direction, ind_to_keep)
-                    for (g,v) in tf_grads[rand_direction]:
-                        if v.name.startswith('out/weights'):
-                            print(v.name)
-                            print(np.transpose(sess.run(v)).shape)
-                            print(np.transpose(sess.run(g)).shape)
-                            print(sess.run(g))
-                        if v.name.startswith('fc1/weights'):
-                            print(v.name)
-                            print(np.transpose(sess.run(v)).shape)
-                            print(np.transpose(sess.run(g)).shape)
-                            print(np.transpose(sess.run(g))[0,:])
-                            print(np.transpose(sess.run(g))[1,:])
-                            print()
-                            print(np.transpose(sess.run(g))[(ind_to_keep*config.FC1_WEIGHTS)+0,:])
-                            print(np.transpose(sess.run(g))[(ind_to_keep * config.FC1_WEIGHTS) + 1, :])
-                    #l1, pred, train_labels = sess.run(
-                    #    [tf_loss, tf_train_predictions, tf_labels])'''
-
-                    #logger.debug(train_labels)
-                    #logger.debug('\n')
                     avg_loss.append(l1)
                     avg_train_accuracy.append(models_utils.soft_accuracy(pred,train_labels,use_argmin=False))
 
@@ -446,6 +383,7 @@ if __name__ == '__main__':
                         logger.debug('Predictions for Non-Collided data')
                         for pred,lbl in zip(pred,train_labels):
                             logger.debug('\t%s;%s',pred,lbl)
+
                 logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,np.mean(l1)))
                 logger.info('\t\t Training accuracy: %.3f'%np.mean(avg_train_accuracy))
                 for it in range(3):

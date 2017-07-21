@@ -47,17 +47,16 @@ def build_tensorflw_variables():
                 # the variable exists, you will get a ValueError saying the variable exists
 
                 try:
-
-                        tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES[scope],
+                        tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
                                                   initializer=tf.truncated_normal_initializer(stddev=0.02,dtype=tf.float32))
-                        tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES[scope][-1],
+                        tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
                                                initializer = tf.constant_initializer(0.001,dtype=tf.float32))
 
                         with tf.variable_scope(config.TF_WEIGHTS_STR):
-                            tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES[scope],
+                            tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
                                             initializer = tf.constant_initializer(0,dtype=tf.float32))
                         with tf.variable_scope(config.TF_BIAS_STR):
-                            tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES[scope][-1],
+                            tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
                                             initializer = tf.constant_initializer(0,dtype=tf.float32))
 
                 except ValueError as e:
@@ -67,7 +66,7 @@ def build_tensorflw_variables():
         print([v.name for v in tf.global_variables()])
 
 
-def logits(tf_inputs,tf_labels,collision):
+def logits(tf_inputs):
     '''
     Inferencing the model. The input (tf_inputs) is propagated through convolutions poolings
     fully-connected layers to obtain the final softmax output
@@ -76,7 +75,6 @@ def logits(tf_inputs,tf_labels,collision):
     '''
     global logger
     logger.info('Defining inference ops ...')
-    index_to_keep = None
     with tf.name_scope('infer'):
         for si, scope in enumerate(config.TF_ANG_SCOPES):
             with tf.variable_scope(scope,reuse=True) as sc:
@@ -93,51 +91,14 @@ def logits(tf_inputs,tf_labels,collision):
                     # Reshaping required for the first fulcon layer
                     if scope == 'out':
                         logger.info('\t\tFully-connected with output Logits for %s',scope)
-                        if tf_labels is not None:
-                            if not collision:
-                                index_to_keep = tf.cast(tf.reduce_mean(tf.argmax(tf_labels, axis=1)), dtype=tf.int32)
-                            else:
-                                index_to_keep = tf.cast(tf.reduce_mean(tf.argmin(tf_labels, axis=1)), dtype=tf.int32)
-
-                            transposed_masked_weights = tf.gather_nd(tf.transpose(weight),[[index_to_keep]])
-                            masked_bias = tf.gather(bias,[index_to_keep])
-                            h = tf.matmul(h, tf.transpose(transposed_masked_weights)) + masked_bias
-                            h = tf.squeeze(h,name='hidden_squeezed')
-
-                        else:
-                            h_out_list = []
-                            for n_i in range(config.TF_NUM_CLASSES):
-                                transposed_masked_weights = tf.gather_nd(tf.transpose(weight), [[n_i]])
-                                masked_bias = tf.gather(bias, [n_i])
-                                h_out_list.append(tf.matmul(h_list[n_i], tf.transpose(transposed_masked_weights)) + masked_bias)
-
-                            h = tf.squeeze(tf.stack(h_out_list,axis=1))
+                        h = tf.matmul(h, weight) + bias
 
                     elif 'fc' in scope:
                         if scope == config.TF_FIRST_FC_ID:
                             h_shape = h.get_shape().as_list()
                             logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
                             h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
-                            if tf_labels is not None:
-                                if not collision:
-                                    index_to_keep = tf.cast(tf.reduce_mean(tf.argmax(tf_labels, axis=1)),
-                                                            dtype=tf.int32)
-                                else:
-                                    index_to_keep = tf.cast(tf.reduce_mean(tf.argmin(tf_labels, axis=1)),
-                                                            dtype=tf.int32)
-
-                                transposed_masked_weights = tf.gather_nd(tf.transpose(weight), tf.expand_dims(tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS),axis=-1))
-                                masked_bias = tf.gather(bias, [tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS)])
-                                h = tf.nn.relu(tf.matmul(h, tf.transpose(transposed_masked_weights)) + masked_bias)
-
-                            else:
-                                h_list = []
-                                for n_i in range(config.TF_NUM_CLASSES):
-                                    transposed_masked_weights = tf.gather_nd(tf.transpose(weight),
-                                        tf.expand_dims(tf.range(n_i * config.FC1_WEIGHTS, (n_i + 1) * config.FC1_WEIGHTS),axis=-1))
-                                    masked_bias = tf.gather(bias,
-                                                            [tf.range(n_i * config.FC1_WEIGHTS, (n_i + 1) * config.FC1_WEIGHTS)])
-                                    h_list.append(tf.nn.relu(tf.matmul(h, tf.transpose(transposed_masked_weights)) + masked_bias))
+                            h = tf.nn.relu(tf.matmul(h, weight) + bias)
 
                         else:
                             raise NotImplementedError
@@ -148,13 +109,13 @@ def logits(tf_inputs,tf_labels,collision):
 
 
 def predictions_with_logits(logits):
-    pred,_ = tf.nn.sigmoid(logits,None,False)
+    pred,_ = tf.nn.tanh(logits)
     return pred
 
 
 def predictions_with_inputs(tf_inputs):
-    tf_logits = logits(tf_inputs,None,False)
-    return tf.nn.sigmoid(tf_logits)
+    tf_logits = logits(tf_inputs)
+    return tf.nn.tanh(tf_logits)
 
 
 def calculate_hybrid_loss(tf_noncol_inputs,tf_noncol_labels,tf_col_inputs,tf_col_labels):
@@ -164,20 +125,15 @@ def calculate_hybrid_loss(tf_noncol_inputs,tf_noncol_labels,tf_col_inputs,tf_col
     tf_col_arg = tf.cast(tf.reduce_min(tf_col_labels, axis=1), dtype=tf.float32)
     tf_noncol_arg = tf.cast(tf.reduce_max(tf_noncol_labels, axis=1), dtype=tf.float32)
 
-    loss = tf.reduce_mean((tf.nn.sigmoid(tf_col_out) - tf_col_arg)**2 + (tf.nn.sigmoid(tf_noncol_out) - tf_noncol_arg)**2)
+    loss = tf.reduce_mean((tf.nn.tanh(tf_col_out) - tf_col_arg)**2 + (tf.nn.tanh(tf_noncol_out) - tf_noncol_arg)**2)
     return loss
 
 
-def calculate_loss(tf_inputs,tf_labels,collision):
+def calculate_loss(tf_inputs, tf_labels):
 
-    tf_out = logits(tf_inputs,tf_labels,collision)
-    if collision:
-        tf_labels_arg = tf.cast(tf.reduce_min(tf_labels,axis=1),dtype=tf.float32)
-    else:
-        tf_labels_arg = tf.cast(tf.reduce_max(tf_labels,axis=1),dtype=tf.float32)
-    #loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_out, labels=tf_labels_arg))
-    loss = tf.reduce_mean((tf.nn.sigmoid(tf_out) - tf_labels_arg)**2)
-    return loss,tf_out,tf_labels_arg
+    tf_out = logits(tf_inputs)
+    loss = tf.reduce_mean((tf.nn.tanh(tf_out) - tf_labels)**2)
+    return loss,tf_out
 
 
 def optimize_model(loss, tf_labels, global_step,increment_global_step, use_masking,collision):
@@ -185,7 +141,7 @@ def optimize_model(loss, tf_labels, global_step,increment_global_step, use_maski
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.08, global_step, decay_steps=500, decay_rate=0.95, staircase=True,
+        tf.train.exponential_decay(0.05, global_step, decay_steps=500, decay_rate=0.95, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
     if use_masking:
@@ -207,14 +163,14 @@ def optimize_model(loss, tf_labels, global_step,increment_global_step, use_maski
                 if use_masking and scope == 'fc1':
                     mask_vel = tf.transpose(tf.scatter_nd(tf.expand_dims(
                         tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS),axis=-1),
-                        tf.ones([config.FC1_WEIGHTS,config.TF_ANG_VAR_SHAPES['fc1'][0]],dtype=tf.float32),
-                        [config.TF_ANG_VAR_SHAPES['fc1'][1],config.TF_ANG_VAR_SHAPES['fc1'][0]])
+                        tf.ones([config.FC1_WEIGHTS,config.TF_ANG_VAR_SHAPES_NAIVE['fc1'][0]],dtype=tf.float32),
+                        [config.TF_ANG_VAR_SHAPES_NAIVE['fc1'][1],config.TF_ANG_VAR_SHAPES_NAIVE['fc1'][0]])
                     )
                     mom_update_ops.append(tf.assign(w_vel,(momentum*w_vel + g_w)*mask_vel))
                 elif use_masking and scope == 'out':
                     mask_vel = tf.transpose(
                         tf.scatter_nd([[index_to_keep]],tf.ones([1,config.FC1_WEIGHTS],dtype=tf.float32),
-                                      [config.TF_ANG_VAR_SHAPES['out'][1],config.TF_ANG_VAR_SHAPES['out'][0]])
+                                      [config.TF_ANG_VAR_SHAPES_NAIVE['out'][1],config.TF_ANG_VAR_SHAPES_NAIVE['out'][0]])
                     )
                     mom_update_ops.append(tf.assign(w_vel, (momentum * w_vel + g_w) * mask_vel))
                 else:
@@ -227,26 +183,21 @@ def optimize_model(loss, tf_labels, global_step,increment_global_step, use_maski
                     mask_vel = tf.scatter_nd(tf.expand_dims(
                         tf.range(index_to_keep*config.FC1_WEIGHTS,(index_to_keep+1)*config.FC1_WEIGHTS),axis=-1),
                         tf.ones([config.FC1_WEIGHTS], dtype=tf.float32),
-                        [config.TF_ANG_VAR_SHAPES['fc1'][1]]
+                        [config.TF_ANG_VAR_SHAPES_NAIVE['fc1'][1]]
                     )
                     mom_update_ops.append(tf.assign(b_vel, (momentum * b_vel + g_b) * mask_vel))
                 elif use_masking and scope=='out':
-                    mask_vel = tf.scatter_nd([[index_to_keep]],tf.ones([1],dtype=tf.float32),[config.TF_ANG_VAR_SHAPES['out'][1]])
+                    mask_vel = tf.scatter_nd([[index_to_keep]],tf.ones([1],dtype=tf.float32),[config.TF_ANG_VAR_SHAPES_NAIVE['out'][1]])
                     mom_update_ops.append(tf.assign(b_vel, (momentum * b_vel + g_b)*mask_vel))
                 else:
                     mom_update_ops.append(tf.assign(b_vel,momentum*b_vel + g_b))
                 grads_and_vars.append((b_vel * learning_rate, b))
 
     if increment_global_step:
-        #optimize = tf.train.AdamOptimizer(beta1=0.9,learning_rate=learning_rate).minimize(loss,global_step=global_step)
-        #optimize = tf.train.MomentumOptimizer(momentum=tf.constant(0.9,dtype=tf.float32), learning_rate=learning_rate).minimize(loss,global_step=global_step)
         optimize = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
     else:
-        #optimize = tf.train.AdamOptimizer(beta1=0.9, learning_rate=learning_rate).minimize(loss)
-        #optimize = tf.train.MomentumOptimizer(momentum=tf.constant(0.9,dtype=tf.float32), learning_rate=learning_rate).minimize(loss)
         optimize = optimizer.apply_gradients(grads_and_vars)
 
-    #optimize = tf.train.MomentumOptimizer(momentum=0.9, learning_rate=learning_rate).minimize(loss)
     return optimize,mom_update_ops,grads_and_vars
 
 
@@ -302,7 +253,7 @@ if __name__ == '__main__':
                                 for i in range(1)]
                          },
 
-                         'test_dataset: ': ['..' + os.sep + 'sample-with-dir-3' + os.sep + 'image-direction-%d.tfrecords' % i for i in range(4)],
+                         'test_dataset': ['..' + os.sep + 'sample-with-dir-3' + os.sep + 'image-direction-%d.tfrecords' % i for i in range(4)],
                          'test_bump_dataset': ['..' + os.sep + 'sample-with-dir-3-bump' + os.sep + 'image-direction-0.tfrecords']}
 
     dataset_sizes = {'train_dataset':1000+500,
@@ -347,47 +298,42 @@ if __name__ == '__main__':
 
         global_step = tf.Variable(0,trainable=False)
 
-        tf_images, tf_labels = {},{}
-        tf_bump_images, tf_bump_labels = {},{}
-        tf_loss, tf_logits, tf_labels_arg = {},{},{}
-        tf_bump_loss, tf_bump_logits, tf_bump_labels_arg = {},{},{}
-        tf_optimize,tf_mom_update_ops,tf_grads = {},{},{}
-        tf_bump_optimize,tf_bump_mom_update_ops,tf_bump_grads = {},{},{}
-        tf_train_predictions, tf_train_bump_predictions = {},{}
-        tf_index_to_keep,tf_bump_index_to_keep = {},{}
+        all_train_files,all_bump_files = [],[]
+        all_test_files,all_bump_test_files = [],[]
+        for di in ['left','straight','right']:
+            all_train_files.extend(dataset_filenames['train_dataset'][di])
+            all_bump_files.extend(dataset_filenames['train_bump_dataset'][di])
+            all_test_files.extend(dataset_filenames['test_dataset'])
+            all_bump_test_files.extend(dataset_filenames['test_bump_dataset'])
 
-        for direction in ['left','straight','right']:
-            tf_images[direction],tf_labels[direction] = models_utils.build_input_pipeline(
-                dataset_filenames['train_dataset'][direction],batch_size,shuffle=True,
-                training_data=False,use_opposite_label=False,inputs_for_sdae=False)
+        tf_images,tf_labels = models_utils.build_input_pipeline(
+            all_train_files,batch_size,shuffle=True,
+            training_data=False,use_opposite_label=False,inputs_for_sdae=False)
 
-            tf_bump_images[direction], tf_bump_labels[direction] = models_utils.build_input_pipeline(
-                dataset_filenames['train_bump_dataset'][direction], batch_size, shuffle=True,
-                training_data=False, use_opposite_label=True,inputs_for_sdae=False)
+        tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
+            all_bump_files, batch_size, shuffle=True,
+            training_data=False, use_opposite_label=True,inputs_for_sdae=False)
 
-            tf_loss[direction], tf_logits[direction], \
-            tf_labels_arg[direction] = calculate_loss(tf_images[direction], tf_labels[direction], collision=False)
+        tf_loss, tf_logits = calculate_loss(tf_images, tf_labels)
 
-            if not config.OPTIMIZE_HYBRID_LOSS:
-                tf_bump_loss[direction], tf_bump_logits[direction], \
-                tf_bump_labels_arg[direction] = calculate_loss(tf_bump_images[direction], tf_bump_labels[direction], collision=True)
+        if not config.OPTIMIZE_HYBRID_LOSS:
+            tf_bump_loss, tf_bump_logits  = calculate_loss(tf_bump_images, tf_bump_labels)
 
-                tf_optimize[direction], tf_mom_update_ops[direction], tf_grads[direction] = optimize_model(tf_loss[direction], tf_labels[direction],
-                                                                                                           global_step, increment_global_step=True,
-                                                                                                           use_masking=False,collision=False)
-                tf_bump_optimize[direction], tf_bump_mom_update_ops[direction], tf_bump_grads[direction] = optimize_model(tf_bump_loss[direction], tf_labels[direction],
-                                                                                                                          global_step,increment_global_step=False,
-                                                                                                                          use_masking=False,collision=True)
-            else:
-                tf_loss[direction] = calculate_hybrid_loss(tf_images[direction],tf_labels[direction],tf_bump_images[direction],tf_bump_labels[direction])
-                tf_optimize[direction], tf_mom_update_ops[direction], tf_grads[direction] = optimize_model(tf_loss[direction],None,global_step,increment_global_step=True,use_masking=False,collision=False)
+            tf_optimize, tf_mom_update_ops, tf_grads = optimize_model(tf_loss, tf_labels,
+                                                                                                       global_step, increment_global_step=True,
+                                                                                                       use_masking=False,collision=False)
+            tf_bump_optimize, tf_bump_mom_update_ops, tf_bump_grads = optimize_model(tf_bump_loss, tf_labels,
+                                                                                                                      global_step,increment_global_step=False,
+                                                                                                                      use_masking=False,collision=True)
+        else:
+            raise NotImplementedError
 
-            tf_train_predictions[direction] = predictions_with_inputs(tf_images[direction])
-            tf_train_bump_predictions[direction] = predictions_with_inputs(tf_bump_images[direction])
+        tf_train_predictions = predictions_with_inputs(tf_images)
+        tf_train_bump_predictions = predictions_with_inputs(tf_bump_images)
 
-        tf_test_images,tf_test_labels = models_utils.build_input_pipeline(dataset_filenames['test_dataset: '],batch_size,shuffle=False,
+        tf_test_images,tf_test_labels = models_utils.build_input_pipeline(all_test_files,batch_size,shuffle=False,
                                                              training_data=False,use_opposite_label=False,inputs_for_sdae=False)
-        tf_bump_test_images, tf_bump_test_labels = models_utils.build_input_pipeline(dataset_filenames['test_bump_dataset'], batch_size, shuffle=False,
+        tf_bump_test_images, tf_bump_test_labels = models_utils.build_input_pipeline(all_bump_test_files, batch_size, shuffle=False,
                                                               training_data=False,use_opposite_label=True,inputs_for_sdae=False)
 
         coord = tf.train.Coordinator()
@@ -398,47 +344,16 @@ if __name__ == '__main__':
 
         tf.global_variables_initializer().run(session=sess)
 
-        '''# due to flipping in data augmentation left and right data can swap but should be a problem for optimization
-        for _ in range(5):
-            for direction in ['left', 'straight', 'right']:
-                tmp_labels_direction,tmp_ind_direction = sess.run([tf_labels[direction],tf_index_to_keep[direction]])
-                print(direction)
-                print(tmp_labels_direction)
-                print(tmp_ind_direction)
-            print('\n')
-        sys.exit(1)'''
-
         for epoch in range(100):
             avg_loss = []
             avg_train_accuracy = []
 
             if not config.OPTIMIZE_HYBRID_LOSS:
                 for step in range(dataset_sizes['train_dataset']//batch_size):
-                    rand_direction = np.random.choice(['left','straight','right'])
-                    l1, _, _, pred,train_labels = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction],tf_mom_update_ops[rand_direction],
-                                                                        tf_train_predictions[rand_direction],tf_labels[rand_direction]])
 
-                    '''logger.debug('%s;%d', rand_direction, ind_to_keep)
-                    for (g,v) in tf_grads[rand_direction]:
-                        if v.name.startswith('out/weights'):
-                            print(v.name)
-                            print(np.transpose(sess.run(v)).shape)
-                            print(np.transpose(sess.run(g)).shape)
-                            print(sess.run(g))
-                        if v.name.startswith('fc1/weights'):
-                            print(v.name)
-                            print(np.transpose(sess.run(v)).shape)
-                            print(np.transpose(sess.run(g)).shape)
-                            print(np.transpose(sess.run(g))[0,:])
-                            print(np.transpose(sess.run(g))[1,:])
-                            print()
-                            print(np.transpose(sess.run(g))[(ind_to_keep*config.FC1_WEIGHTS)+0,:])
-                            print(np.transpose(sess.run(g))[(ind_to_keep * config.FC1_WEIGHTS) + 1, :])
-                    #l1, pred, train_labels = sess.run(
-                    #    [tf_loss, tf_train_predictions, tf_labels])'''
+                    l1, _, _, pred,train_labels = sess.run([tf_loss, tf_optimize,tf_mom_update_ops,
+                                                                        tf_train_predictions,tf_labels])
 
-                    #logger.debug(train_labels)
-                    #logger.debug('\n')
                     avg_loss.append(l1)
                     avg_train_accuracy.append(models_utils.soft_accuracy(pred,train_labels,use_argmin=False))
 
@@ -453,10 +368,10 @@ if __name__ == '__main__':
                     avg_bump_loss = []
                     avg_bump_train_accuracy = []
                     for step in range(dataset_sizes['train_bump_dataset']//batch_size):
-                        rand_direction = np.random.choice(['left', 'straight', 'right'])
-                        bump_l1,bump_logits,bump_label_args, _, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss[rand_direction], tf_bump_logits[rand_direction], tf_bump_labels_arg[rand_direction],
-                                                                                                         tf_bump_optimize[rand_direction], tf_bump_mom_update_ops[rand_direction],
-                                                                                                         tf_train_bump_predictions[rand_direction], tf_bump_labels[rand_direction]])
+
+                        bump_l1,bump_logits, _, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
+                                                                                                         tf_bump_optimize, tf_bump_mom_update_ops,
+                                                                                                         tf_train_bump_predictions, tf_bump_labels])
                         avg_bump_loss.append(bump_l1)
                         avg_bump_train_accuracy.append(models_utils.soft_accuracy(bump_pred,train_bump_labels,use_argmin=True))
 
@@ -473,10 +388,10 @@ if __name__ == '__main__':
                 avg_noncol_train_accuracy = []
                 avg_col_train_accuracy = []
                 for step in range(dataset_sizes['train_dataset']//batch_size):
-                    rand_direction = np.random.choice(['left','straight','right'])
-                    l1, _, _, = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction],tf_mom_update_ops[rand_direction]])
-                    noncol_pred,noncol_labels = sess.run([tf_train_predictions[rand_direction],tf_labels[rand_direction]])
-                    col_pred, col_labels = sess.run([tf_train_bump_predictions[rand_direction], tf_bump_labels[rand_direction]])
+
+                    l1, _, _, = sess.run([tf_loss, tf_optimize,tf_mom_update_ops])
+                    noncol_pred,noncol_labels = sess.run([tf_train_predictions,tf_labels])
+                    col_pred, col_labels = sess.run([tf_train_bump_predictions, tf_bump_labels])
                     avg_loss.append(l1)
                     avg_noncol_train_accuracy.append(models_utils.soft_accuracy(noncol_pred,noncol_labels, use_argmin=False))
                     avg_col_train_accuracy.append(

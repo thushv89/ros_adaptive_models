@@ -44,5 +44,5 @@ atrv.append(motion)
 motion.add_stream('ros', topic='/cmd_vel')
 
 # Set the environment
-env = Environment('indoors-1/indoor-1')
+env = Environment('tum_kitchen/tum_kitchen')
 #env = Environment('laas/grande_salle')

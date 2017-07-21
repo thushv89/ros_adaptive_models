@@ -6,7 +6,7 @@ import sys
 
 sess,graph,logger = None,None,None
 
-logging_level = logging.DEBUG
+logging_level = logging.INFO
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 logger = logging.getLogger('ModelsUtilsLogger')
@@ -80,9 +80,9 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
                 one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32)
         else:
             if training_data and config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=0.0, off_value=1.0)
+                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=-1.0, off_value=0.0)
             else:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=0.0, off_value=1.0)
+                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
 
         # standardize image
         image = tf.image.per_image_standardization(image)
@@ -129,15 +129,15 @@ def accuracy(pred,ohe_labels,use_argmin):
 def soft_accuracy(pred,ohe_labels, use_argmin):
     if not use_argmin:
         label_indices = list(np.argmax(ohe_labels,axis=1).flatten())
-        correct_indices = list(np.where(pred[np.arange(pred.shape[0]),label_indices]>0.51)[0])
-        correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()]>0.5
+        correct_indices = list(np.where(pred[np.arange(pred.shape[0]),label_indices]>0.01)[0])
+        correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()]>0.01
         correct_boolean_wrt_max = np.argmax(pred,axis=1)==np.argmax(ohe_labels,axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_max))*100.0/pred.shape[0]
         #return len(correct_indices)*100.0/pred.shape[0]
     else:
         label_indices = list(np.argmin(ohe_labels, axis=1).flatten())
-        correct_indices = list(np.where(pred[np.arange(pred.shape[0]), label_indices] < 0.49)[0])
-        correct_boolean = pred[np.arange(pred.shape[0]), np.argmax(ohe_labels, axis=1).flatten()] < 0.5
+        correct_indices = list(np.where(pred[np.arange(pred.shape[0]), label_indices] < -0.01)[0])
+        correct_boolean = pred[np.arange(pred.shape[0]), np.argmax(ohe_labels, axis=1).flatten()] < -0.01
         correct_boolean_wrt_max = np.argmin(pred, axis=1) == np.argmin(ohe_labels, axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_max))*100.0/pred.shape[0]
         #return len(correct_indices) * 100.0 / pred.shape[0]
@@ -167,7 +167,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         logger.debug('')
         prediction_indices_binned_to_direct = [ np.where(
             np.logical_or(
-                pred[np.arange(pred.shape[0]), np.ones(pred.shape[0],dtype=np.int32)*i] > 0.51,
+                pred[np.arange(pred.shape[0]), np.ones(pred.shape[0],dtype=np.int32)*i] > 0.01,
                 np.argmax(pred, axis=1) == np.ones(pred.shape[0],dtype=np.int32)*i)==True)[0]
             for i in range(3)
         ]
@@ -194,7 +194,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         # where array items are the indices of that direction
         label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
-            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < 0.49,
+            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < -0.01,
             np.argmin(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
                                                for i in range(3)
                                                ]
@@ -218,7 +218,7 @@ def recall_multiclass(pred, ohe_labels, use_argmin):
         # where array items are the indices of that direction
         label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
-            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] > 0.51,
+            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] > 0.01,
             np.argmax(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
                                                for i in range(3)
                                                ]
@@ -238,7 +238,7 @@ def recall_multiclass(pred, ohe_labels, use_argmin):
         # where array items are the indices of that direction
         label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
-            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < 0.49,
+            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < -0.01,
             np.argmin(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
                                                for i in range(3)
                                                ]
