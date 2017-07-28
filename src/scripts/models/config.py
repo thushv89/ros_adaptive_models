@@ -28,32 +28,29 @@ ENABLE_MASKING = True # drop out logits of zero elements on the one-hot vectors 
 ENABLE_SOFT_CLASSIFICATION = True # use 0.9 and 0.1 instead of 0 and 1 in the one-hot vectors
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
-TF_ANG_SCOPES = ['conv1','conv2','fc1','out']
+TF_ANG_SCOPES = ['conv1','conv2','conv3','fc1','out']
 
 FC1_WEIGHTS = 64
 
 
 if not USE_GRAYSCALE:
 
-    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [7, 7, 3, 32], 'conv2': [5, 5, 32, 64],
+    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [5, 5, 3, 32], 'conv2': [3, 3, 32, 48],'conv3': [3,3,48,64],
                          'fc1': [16 * 12 * 64, FC1_WEIGHTS],
                          'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
-    TF_ANG_VAR_SHAPES = {'conv1':[7,7,3,32],'conv2':[5,5,32,64],
+    TF_ANG_VAR_SHAPES = {'conv1':[5,5,3,32],'conv2': [3, 3, 32, 48],'conv3': [3,3,48,64],
                          'fc1':[16*12*64,FC1_WEIGHTS*TF_NUM_CLASSES],
                          'out':[FC1_WEIGHTS,TF_NUM_CLASSES]}
 
-    TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [7, 7, 3, 32], 'conv2': [5, 5, 32, 64],
+    TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [7, 7, 3, 32], 'conv2': [3, 3, 32, 48],'conv3': [3,3,48,64],
                          'fc1': [16 * 12 * 64, FC1_WEIGHTS],
                          'out': [FC1_WEIGHTS, 1]}
 
-    TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [7, 7, 3, 16], 'conv2': [5, 5, 32, 32],
-                                  'fc1': [16 * 12 * 32, FC1_WEIGHTS],
-                                  'out': [FC1_WEIGHTS, 1]}
 else:
-    TF_ANG_VAR_SHAPES = {'conv1': [7, 7, 1, 32], 'conv2': [5, 5, 16, 64], 'fc1':[16 * 12 * 64, FC1_WEIGHTS],
+    TF_ANG_VAR_SHAPES = {'conv1': [5, 5, 1, 32], 'conv2': [3, 3, 16, 64], 'fc1':[16 * 12 * 64, FC1_WEIGHTS],
                          'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
-TF_ANG_STRIDES = {'conv1':[1,4,4,1],'conv2':[1,2,2,1],'conv3':[1,2,2,1]}
+TF_ANG_STRIDES = {'conv1':[1,2,2,1],'conv2':[1,2,2,1],'conv3':[1,2,2,1]}
 TF_FIRST_FC_ID = 'fc1'
 
 TF_SDAE_ANG_SCOPES = ['fc1','fc2','fc3','out']

@@ -16,6 +16,7 @@ odometry.add_interface('ros', topic="/odom",frame_id="odom",child_frame_id='base
 keyboard = Keyboard()
 atrv.append(keyboard)
 
+# Camera causes trouble cause delays and screwing up AMCL
 cam_frequency = 10
 camera = VideoCamera()
 #camera.translate(x = -1.5, z= 0.9)
@@ -27,6 +28,7 @@ camera.frequency(cam_frequency)
 atrv.append(camera)
 camera.add_interface('ros',topic='/camera')
 
+
 # for localization
 scan = Hokuyo()
 scan.translate(x=0.275, z=0.252)
@@ -37,12 +39,14 @@ scan.properties(resolution = 1)
 scan.properties(scan_window = 180.0) #angle of laser
 scan.frequency(10)
 scan.create_laser_arc()
-scan.add_interface('ros', topic='/scan',frame_id="laser")
+scan.add_interface('ros', topic='/scan',frame_id='base_scan')
 
 motion = MotionXYW()
 atrv.append(motion)
 motion.add_stream('ros', topic='/cmd_vel')
 
 # Set the environment
-env = Environment('tum_kitchen/tum_kitchen')
+#env = Environment('sandbox')
+env = Environment('indoors-1/indoor-1')
 #env = Environment('laas/grande_salle')
+

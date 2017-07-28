@@ -6,7 +6,7 @@ import sys
 
 sess,graph,logger = None,None,None
 
-logging_level = logging.INFO
+logging_level = logging.DEBUG
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 logger = logging.getLogger('ModelsUtilsLogger')
@@ -19,6 +19,25 @@ fileHandler.setFormatter(logging.Formatter(logging_format))
 fileHandler.setLevel(logging.DEBUG)
 logger.addHandler(console)
 logger.addHandler(fileHandler)
+
+
+def lrelu(x, leak=0.2, name="lrelu"):
+    with tf.variable_scope(name):
+        f1 = 0.5 * (1 + leak)
+        f2 = 0.5 * (1 - leak)
+        return f1 * x + f2 * abs(x)
+
+
+def activate(x,activation_type,name='activation'):
+
+    if activation_type=='tanh':
+        return tf.nn.tanh(x,name=name)
+    elif activation_type=='relu':
+        return tf.nn.relu(x,name=name)
+    elif activation_type=='lrelu':
+        return lrelu(x,name=name)
+    else:
+        raise NotImplementedError
 
 def set_from_main(main_sess,main_graph, main_logger):
     global sess,graph,logger
@@ -74,15 +93,9 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
 
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         if not use_opposite_label:
-            if training_data and config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=1.0,off_value=config.SOFT_COLLISION_LABEL)
-            else:
-                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32)
+            one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32)
         else:
-            if training_data and config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=-1.0, off_value=0.0)
-            else:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
+            one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
 
         # standardize image
         image = tf.image.per_image_standardization(image)
@@ -129,17 +142,17 @@ def accuracy(pred,ohe_labels,use_argmin):
 def soft_accuracy(pred,ohe_labels, use_argmin):
     if not use_argmin:
         label_indices = list(np.argmax(ohe_labels,axis=1).flatten())
-        correct_indices = list(np.where(pred[np.arange(pred.shape[0]),label_indices]>0.01)[0])
-        correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()]>0.01
+        correct_indices = list(np.where(pred[np.arange(pred.shape[0]),label_indices] > 0.01)[0])
+        correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()] > 0.01
         correct_boolean_wrt_max = np.argmax(pred,axis=1)==np.argmax(ohe_labels,axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_max))*100.0/pred.shape[0]
         #return len(correct_indices)*100.0/pred.shape[0]
     else:
         label_indices = list(np.argmin(ohe_labels, axis=1).flatten())
         correct_indices = list(np.where(pred[np.arange(pred.shape[0]), label_indices] < -0.01)[0])
-        correct_boolean = pred[np.arange(pred.shape[0]), np.argmax(ohe_labels, axis=1).flatten()] < -0.01
-        correct_boolean_wrt_max = np.argmin(pred, axis=1) == np.argmin(ohe_labels, axis=1)
-        return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_max))*100.0/pred.shape[0]
+        correct_boolean = pred[np.arange(pred.shape[0]), np.argmin(ohe_labels, axis=1).flatten()] < -0.01
+        correct_boolean_wrt_min = np.argmin(pred, axis=1) == np.argmin(ohe_labels, axis=1)
+        return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_min))*100.0/pred.shape[0]
         #return len(correct_indices) * 100.0 / pred.shape[0]
 
 
@@ -148,11 +161,11 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
     # --------------
     # T POS + F POS (All classfied Positive)
     if not use_argmin:
-        logger.debug('Predictions')
-        logger.debug(pred)
-        logger.debug('')
-        logger.debug('OHE labels')
-        logger.debug(ohe_labels)
+        logger.debug('Predictions and Labels side by side')
+        for ei,(l,p) in enumerate(zip(ohe_labels,pred)):
+            if ei<25:
+                logger.debug('\t%s;%s',l,p)
+
         logger.debug('')
 
         label_indices = np.argmax(ohe_labels, axis=1).flatten()
@@ -165,21 +178,32 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         logger.debug('Label indices binned by the label')
         logger.debug(label_indices_binned_to_direct)
         logger.debug('')
+
+        #prediction_indices_binned_to_direct = []
+        #for di in range(3):
+        #    di_greater_than_threshold =
         prediction_indices_binned_to_direct = [ np.where(
             np.logical_or(
                 pred[np.arange(pred.shape[0]), np.ones(pred.shape[0],dtype=np.int32)*i] > 0.01,
-                np.argmax(pred, axis=1) == np.ones(pred.shape[0],dtype=np.int32)*i)==True)[0]
-            for i in range(3)
+                np.argmax(pred, axis=1) == np.ones(pred.shape[0],dtype=np.int32)*i
+            )==True)[0] for i in range(3)
         ]
+
         logger.debug('Prediction indices binned by the label (SOFT)')
         logger.debug(prediction_indices_binned_to_direct)
         logger.debug('')
         precision_array = []
         for bi,pred_dir_bin in enumerate(prediction_indices_binned_to_direct):
-            logger.debug('True Positive for label %d',bi)
+            logger.debug('True Positive for label (Labels,Predictions,True Pos) %d',bi)
+            logger.debug('\tLabels')
+            logger.debug('\t%s',label_indices_binned_to_direct[bi])
+            logger.debug('\tPredictions')
+            logger.debug('\t%s',pred_dir_bin)
             t_pos = np.intersect1d(pred_dir_bin, label_indices_binned_to_direct[bi]).size
-            logger.debug('\t%d',t_pos)
-            precision_i = t_pos*1.0/np.asscalar(np.sum([pred_i.size for pred_i in prediction_indices_binned_to_direct]))
+            logger.debug('\tIntersection')
+            logger.debug('\t%s',np.intersect1d(pred_dir_bin, label_indices_binned_to_direct[bi]))
+            logger.debug('\tTrue Positives: %d',t_pos)
+            precision_i = t_pos*1.0/max([pred_dir_bin.size,1.0])
             precision_array.append(precision_i)
         logger.debug('')
         logger.debug('Precision array')
@@ -202,7 +226,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         precision_array = []
         for bi, pred_dir_bin in enumerate(prediction_indices_binned_to_direct):
             t_pos = np.intersect1d(pred_dir_bin, label_indices_binned_to_direct[bi]).size
-            precision_i = t_pos * 1.0 / np.asscalar(np.sum([pred_i.size for pred_i in prediction_indices_binned_to_direct]))
+            precision_i = t_pos * 1.0 / max([pred_dir_bin.size,1.0])
             precision_array.append(precision_i)
 
         return precision_array
@@ -226,7 +250,7 @@ def recall_multiclass(pred, ohe_labels, use_argmin):
         recall_array = []
         for bi, pred_dir_bin in enumerate(prediction_indices_binned_to_direct):
             t_pos = np.intersect1d(pred_dir_bin, label_indices_binned_to_direct[bi]).size
-            recall_i = t_pos * 1.0 / np.asscalar(np.sum([actual_i.size for actual_i in label_indices_binned_to_direct]))
+            recall_i = t_pos * 1.0 / max([label_indices_binned_to_direct[bi].size,1.0])
             recall_array.append(recall_i)
 
         return recall_array
@@ -246,7 +270,7 @@ def recall_multiclass(pred, ohe_labels, use_argmin):
         recall_array = []
         for bi, pred_dir_bin in enumerate(prediction_indices_binned_to_direct):
             t_pos = np.intersect1d(pred_dir_bin, label_indices_binned_to_direct[bi]).size
-            recall_i = t_pos * 1.0 / np.asscalar(np.sum([actual_i.size for actual_i in label_indices_binned_to_direct]))
+            recall_i = t_pos * 1.0 / max([label_indices_binned_to_direct[bi].size,1.0])
             recall_array.append(recall_i)
 
         return recall_array

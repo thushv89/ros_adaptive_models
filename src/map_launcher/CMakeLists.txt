@@ -6,7 +6,6 @@ project(map_launcher)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   multi_map_server
-  robot_state_publisher
   roscpp
   rospy
 )

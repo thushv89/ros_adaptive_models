@@ -35,10 +35,12 @@ def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefi
     items_for_direction = [0 for _ in range(3)]
     file_indices = [0 for _ in range(3)]
 
+    # create 3 tf records each for each direction
     for di in range(3):
         tfrecords_filenames.append(data_folder + os.sep + 'image-direction-%d-%d.tfrecords'%(file_indices[di],di))
         writers.append(tf.python_io.TFRecordWriter(tfrecords_filenames[di]))
 
+    # create example for each image write with the writer
     for img_id in image_ids:
         direction = int(drive_direct_dict[img_id])
         im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
@@ -56,8 +58,9 @@ def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefi
         writers[direction].write(example.SerializeToString())
         items_for_direction[direction] += 1
 
+        # update tf record filename, writer
         if items_for_direction[direction]>=max_instances_per_file:
-            print('Items fore %d direction exceeds max'%direction)
+            print('Items for %d direction exceeds max'%direction)
             items_for_direction[direction] = 0
             file_indices[direction] += 1
             writers[direction].close()
@@ -68,8 +71,8 @@ def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefi
         writers[di].close()
 
 if __name__ == '__main__':
-    is_bump_data = False
-    data_folder = '.'+os.sep+ '..'+ os.sep+'sample-with-dir-1'
+    is_bump_data = True
+    data_folder = '.'+os.sep+ '..'+ os.sep+'data_sandbox_bump_200'
 
     angle_dict = {}
     direction_dict = {}
@@ -94,9 +97,9 @@ if __name__ == '__main__':
         data_indices = img_indices
         image_fname_prefix = 'bump_img'
 
-    #dump_to_tfrecord(data_folder,direction_dict,data_indices,image_fname_prefix,100)
+    dump_to_tfrecord(data_folder,direction_dict,data_indices,image_fname_prefix,max_instances_per_file=100)
 
-    record_iterator = tf.python_io.tf_record_iterator(path=data_folder + os.sep + 'image-direction-0-0.tfrecords')
+    '''record_iterator = tf.python_io.tf_record_iterator(path=data_folder + os.sep + 'image-direction-0-0.tfrecords')
 
     record_count = 0
     for string_record in record_iterator:
@@ -110,4 +113,4 @@ if __name__ == '__main__':
         print(example.features.feature[config.FEAT_LABEL].int64_list.value[0])
 
         record_count += 1
-    print(record_count)
+    print(record_count)'''

@@ -28,6 +28,8 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
+activation = 'relu'
+MASK_ZERO_IN_LOSS = True
 
 def build_tensorflw_variables():
     '''
@@ -83,9 +85,9 @@ def logits(tf_inputs):
                 if 'conv' in scope:
                     logger.info('\t\tConvolution with ReLU activation for %s',scope)
                     if si == 0:
-                        h = tf.nn.relu(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,name='hidden')
+                        h = models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='hidden')
                     else:
-                        h = tf.nn.relu(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias,
+                        h = models_utils.activate(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias, activation,
                                        name='hidden')
                 else:
                     # Reshaping required for the first fulcon layer
@@ -98,7 +100,7 @@ def logits(tf_inputs):
                             h_shape = h.get_shape().as_list()
                             logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
                             h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
-                            h = tf.nn.relu(tf.matmul(h, weight) + bias)
+                            h = models_utils.activate(tf.matmul(h, weight) + bias, activation)
 
                         else:
                             raise NotImplementedError
@@ -132,16 +134,18 @@ def calculate_hybrid_loss(tf_noncol_inputs,tf_noncol_labels,tf_col_inputs,tf_col
 def calculate_loss(tf_inputs, tf_labels):
 
     tf_out = logits(tf_inputs)
-    loss = tf.reduce_mean((tf.nn.tanh(tf_out) - tf_labels)**2)
+    if MASK_ZERO_IN_LOSS:
+        tf_out = tf_out * tf.cast(tf.not_equal(tf_labels,0),dtype=tf.float32)
+    loss = tf.reduce_mean(tf.reduce_sum((tf.nn.tanh(tf_out) - tf_labels)**2,axis=[1]))
     return loss,tf_out
 
 
-def optimize_model(loss, tf_labels, global_step,increment_global_step, use_masking,collision):
-    momentum = 0.01
+def optimize_model(loss, tf_labels, global_step, use_masking,collision):
+    momentum = 0.9
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.05, global_step, decay_steps=500, decay_rate=0.95, staircase=True,
+        tf.train.exponential_decay(0.01, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
     if use_masking:
@@ -193,12 +197,13 @@ def optimize_model(loss, tf_labels, global_step,increment_global_step, use_maski
                     mom_update_ops.append(tf.assign(b_vel,momentum*b_vel + g_b))
                 grads_and_vars.append((b_vel * learning_rate, b))
 
-    if increment_global_step:
-        optimize = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
-    else:
-        optimize = optimizer.apply_gradients(grads_and_vars)
+    optimize = optimizer.apply_gradients(grads_and_vars)
 
     return optimize,mom_update_ops,grads_and_vars
+
+
+def inc_gstep(gstep):
+    return tf.assign(gstep,gstep+1)
 
 
 if __name__ == '__main__':
@@ -219,47 +224,78 @@ if __name__ == '__main__':
     if IMG_DIR and not os.path.exists(IMG_DIR):
         os.mkdir(IMG_DIR)
 
-    dataset_filenames = {'train_dataset':{'left':[
-                                                  '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-0.tfrecords' % i
-                                                  for i in range(1)
-                                                  ] +
-                                              [
-                                                  '..' + os.sep + 'sample-with-dir-2' + os.sep + 'image-direction-%d-0.tfrecords' % i
-                                                  for i in range(1)
-                                                  ],
-                                         'straight':[
-                                                   '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-1.tfrecords' % i
-                                                   for i in range(2)] +
-                                               [
-                                                   '..' + os.sep + 'sample-with-dir-2' + os.sep + 'image-direction-%d-1.tfrecords' % i
-                                                   for i in range(2)],
-                                         'right':[
-                                                   '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-2.tfrecords' % i
-                                                   for i in range(2)] +
-                                               [
-                                                   '..' + os.sep + 'sample-with-dir-2' + os.sep + 'image-direction-%d-2.tfrecords' % i
-                                                   for i in range(1)]
-                                          },
+    dataset_filenames = {'train_dataset': {'left': [
+                                                       '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                       for i in range(2)
+                                                       ] +
+                                                   [
+                                                       '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                       for i in range(1)
+                                                       ],
+                                           'straight': [
+                                                           '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                           for i in range(3)] +
+                                                       [
+                                                           '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                           for i in range(4)],
+                                           'right': [
+                                                        '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                        for i in range(2)] +
+                                                    [
+                                                        '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                        for i in range(2)]
+                                           },
 
-                         'train_bump_dataset':{
+                         'train_bump_dataset': {
                              'left': [
-                                 '..' + os.sep + 'sample-with-dir-1-bump' + os.sep + 'image-direction-%d-0.tfrecords' % i
-                                 for i in range(1)],
+                                         '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                         for i in range(1)] +
+                                     [
+                                         '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                         for i in range(1)]
+                             ,
                              'straight': [
-                                '..' + os.sep + 'sample-with-dir-1-bump' + os.sep + 'image-direction-%d-1.tfrecords' % i
-                                for i in range(1)],
-                             'right':[
-                                '..' + os.sep + 'sample-with-dir-1-bump' + os.sep + 'image-direction-%d-2.tfrecords' % i
-                                for i in range(1)]
+                                             '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                             for i in range(2)] +
+                                         [
+                                             '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                             for i in range(2)]
+                             ,
+                             'right': [
+                                          '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                          for i in range(1)] +
+                                      [
+                                          '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                          for i in range(1)]
                          },
 
-                         'test_dataset': ['..' + os.sep + 'sample-with-dir-3' + os.sep + 'image-direction-%d.tfrecords' % i for i in range(4)],
-                         'test_bump_dataset': ['..' + os.sep + 'sample-with-dir-3-bump' + os.sep + 'image-direction-0.tfrecords']}
+                         'test_dataset': [
+                                               '..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                               for i in range(2)] +
+                                           [
+                                               '..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                               for i in range(3)] +
+                                           [
+                                               '..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                               for i in range(2)],
+                         'test_bump_dataset': [
+                                                  '..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                  for i in range(1)] +
+                                              [
+                                                  '..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                  for i in range(2)] +
+                                              [
+                                                  '..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                  for i in range(1)]
+                         }
 
-    dataset_sizes = {'train_dataset':1000+500,
-                     'train_bump_dataset': 600,
-                     'test_dataset': 500,
-                     'test_bump_dataset': 100}
+    dataset_sizes = {'train_dataset': 1000 + 1000,
+                     'train_bump_dataset': 400,
+                     'test_dataset': 1000,
+                     'test_bump_dataset': 200}
+
+    min_col_loss, min_noncol_loss = 10000, 10000
+    col_exceed_min_count, noncol_exceed_min_count = 0, 0
 
     predictionlogger = logging.getLogger('PredictionLogger')
     predictionlogger.setLevel(logging.INFO)
@@ -284,7 +320,7 @@ if __name__ == '__main__':
     accuracyFH.setLevel(logging.INFO)
     accuracy_logger.addHandler(accuracyFH)
     accuracy_logger.info('#Epoch;Accuracy;Non-collision Accuracy(Soft);Collision Accuracy;' +
-                         'Collision Accuracy (Soft);Preci-L,Preci-S,Preci-R;Rec-L,Rec-S,Rec-R')
+                         'Collision Accuracy (Soft);Preci-NC-L,Preci-NC-S,Preci-NC-R;Rec-NC-L,Rec-NC-S,Rec-NC-R')
 
     batch_size = 5
 
@@ -296,7 +332,11 @@ if __name__ == '__main__':
         build_tensorflw_variables()
         models_utils.set_from_main(sess,graph,logger)
 
-        global_step = tf.Variable(0,trainable=False)
+        noncol_global_step = tf.Variable(0, trainable=False)
+        col_global_step = tf.Variable(0, trainable=False)
+
+        inc_noncol_gstep = inc_gstep(noncol_global_step)
+        inc_col_gstep = inc_gstep(col_global_step)
 
         all_train_files,all_bump_files = [],[]
         all_test_files,all_bump_test_files = [],[]
@@ -308,23 +348,19 @@ if __name__ == '__main__':
 
         tf_images,tf_labels = models_utils.build_input_pipeline(
             all_train_files,batch_size,shuffle=True,
-            training_data=False,use_opposite_label=False,inputs_for_sdae=False)
+            training_data=True,use_opposite_label=False,inputs_for_sdae=False)
 
         tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
             all_bump_files, batch_size, shuffle=True,
-            training_data=False, use_opposite_label=True,inputs_for_sdae=False)
+            training_data=True, use_opposite_label=True,inputs_for_sdae=False)
 
         tf_loss, tf_logits = calculate_loss(tf_images, tf_labels)
 
         if not config.OPTIMIZE_HYBRID_LOSS:
             tf_bump_loss, tf_bump_logits  = calculate_loss(tf_bump_images, tf_bump_labels)
 
-            tf_optimize, tf_mom_update_ops, tf_grads = optimize_model(tf_loss, tf_labels,
-                                                                                                       global_step, increment_global_step=True,
-                                                                                                       use_masking=False,collision=False)
-            tf_bump_optimize, tf_bump_mom_update_ops, tf_bump_grads = optimize_model(tf_bump_loss, tf_labels,
-                                                                                                                      global_step,increment_global_step=False,
-                                                                                                                      use_masking=False,collision=True)
+            tf_optimize, tf_mom_update_ops, tf_grads = optimize_model(tf_loss, tf_labels, noncol_global_step, use_masking=False,collision=False)
+            tf_bump_optimize, tf_bump_mom_update_ops, tf_bump_grads = optimize_model(tf_bump_loss, tf_labels, col_global_step, use_masking=False,collision=True)
         else:
             raise NotImplementedError
 
@@ -347,60 +383,64 @@ if __name__ == '__main__':
         for epoch in range(100):
             avg_loss = []
             avg_train_accuracy = []
+            avg_bump_loss = []
+            avg_bump_train_accuracy = []
 
-            if not config.OPTIMIZE_HYBRID_LOSS:
-                for step in range(dataset_sizes['train_dataset']//batch_size):
+            # Training with Non-Bump Data
+            for step in range(dataset_sizes['train_dataset']//batch_size//2):
 
-                    l1, _, _, pred,train_labels = sess.run([tf_loss, tf_optimize,tf_mom_update_ops,
-                                                                        tf_train_predictions,tf_labels])
+                l1, _, _, pred,train_labels = sess.run([tf_loss, tf_optimize,tf_mom_update_ops,
+                                                                    tf_train_predictions,tf_labels])
 
-                    avg_loss.append(l1)
-                    avg_train_accuracy.append(models_utils.soft_accuracy(pred,train_labels,use_argmin=False))
+                avg_loss.append(l1)
+                avg_train_accuracy.append(models_utils.soft_accuracy(pred,train_labels,use_argmin=False))
 
-                    if step < 2:
-                        logger.debug('Predictions for Non-Collided data')
-                        for pred,lbl in zip(pred,train_labels):
-                            logger.debug('\t%s;%s',pred,lbl)
-                logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,np.mean(l1)))
-                logger.info('\t\t Training accuracy: %.3f'%np.mean(avg_train_accuracy))
-                for it in range(3):
+                if step < 2:
+                    logger.debug('Predictions for Non-Collided data')
+                    for pred,lbl in zip(pred,train_labels):
+                        logger.debug('\t%s;%s',pred,lbl)
 
-                    avg_bump_loss = []
-                    avg_bump_train_accuracy = []
-                    for step in range(dataset_sizes['train_bump_dataset']//batch_size):
+                # Training with Bump Data
+            #for step in range(dataset_sizes['train_bump_dataset'] // batch_size):
+                bump_l1,bump_logits, _, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
+                                                                                                 tf_bump_optimize, tf_bump_mom_update_ops,
+                                                                                                 tf_train_bump_predictions, tf_bump_labels])
+                avg_bump_loss.append(bump_l1)
+                avg_bump_train_accuracy.append(models_utils.soft_accuracy(bump_pred,train_bump_labels,use_argmin=True))
 
-                        bump_l1,bump_logits, _, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
-                                                                                                         tf_bump_optimize, tf_bump_mom_update_ops,
-                                                                                                         tf_train_bump_predictions, tf_bump_labels])
-                        avg_bump_loss.append(bump_l1)
-                        avg_bump_train_accuracy.append(models_utils.soft_accuracy(bump_pred,train_bump_labels,use_argmin=True))
+                if step<2:
+                    logger.debug('Predictions for Collided data')
+                    for pred,lbl in zip(bump_pred,train_bump_labels):
+                        logger.debug('\t%s;%s',pred,lbl)
 
-                        if it==0 and step<2:
-                            logger.debug('Predictions for Collided data')
-                            for pred,lbl in zip(bump_pred,train_bump_labels):
-                                logger.debug('\t%s;%s',pred,lbl)
-
-                logger.info('\tAverage Bump Loss (Train) for Epoch %d: %.5f'%(epoch,np.mean(avg_bump_loss)))
-                logger.info('\t\tAverage Bump Accuracy (Train) for Epoch %d: %.5f' % (epoch, np.mean(avg_bump_train_accuracy)))
-
+            if min_noncol_loss > np.mean(avg_loss):
+                min_noncol_loss = np.mean(avg_loss)
             else:
-                avg_loss = []
-                avg_noncol_train_accuracy = []
-                avg_col_train_accuracy = []
-                for step in range(dataset_sizes['train_dataset']//batch_size):
+                noncol_exceed_min_count += 1
+                logger.info('Increase noncol_exceed to %d',noncol_exceed_min_count)
 
-                    l1, _, _, = sess.run([tf_loss, tf_optimize,tf_mom_update_ops])
-                    noncol_pred,noncol_labels = sess.run([tf_train_predictions,tf_labels])
-                    col_pred, col_labels = sess.run([tf_train_bump_predictions, tf_bump_labels])
-                    avg_loss.append(l1)
-                    avg_noncol_train_accuracy.append(models_utils.soft_accuracy(noncol_pred,noncol_labels, use_argmin=False))
-                    avg_col_train_accuracy.append(
-                        models_utils.soft_accuracy(col_pred, col_labels, use_argmin=True))
+            if noncol_exceed_min_count >=3:
+                logger.info('Stepping down collision learning rate')
+                sess.run(inc_col_gstep)
+                noncol_exceed_min_count = 0
 
-                logger.info('\tAverage Loss (Hybrid) for Epoch %d: %.5f' % (epoch, np.mean(l1)))
-                logger.info('\t\t Training accuracy: %.3f' % np.mean(avg_noncol_train_accuracy))
-                logger.info(
-                    '\t\tAverage Bump Accuracy (Train) for Epoch %d: %.5f' % (epoch, np.mean(avg_col_train_accuracy)))
+            logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,np.mean(avg_loss)))
+            logger.info('\t\t Training accuracy: %.3f'%np.mean(avg_train_accuracy))
+
+            if min_col_loss > np.mean(avg_bump_loss):
+                min_col_loss = np.mean(avg_bump_loss)
+            else:
+                col_exceed_min_count += 1
+                logger.info('Increase col_exceed to %d',col_exceed_min_count)
+
+            if col_exceed_min_count >= 3:
+                logger.info('Stepping down non-collision learning rate')
+                sess.run(inc_noncol_gstep)
+                col_exceed_min_count = 0
+
+            logger.info('\tAverage Bump Loss (Train) for Epoch %d: %.5f'%(epoch,np.mean(avg_bump_loss)))
+            logger.info('\t\tAverage Bump Accuracy (Train) for Epoch %d: %.5f' % (epoch, np.mean(avg_bump_train_accuracy)))
+
 
             if (epoch+1)%5==0:
                 test_accuracy = []

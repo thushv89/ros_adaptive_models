@@ -1,17 +1,12 @@
 <robot name="artv">
 
     <link name="base_link"/>
-    <link name="laser"/>
+    <link name="base_scan"/>
 
-    <!--joint name="base_odom" type="fixed">
-        <parent link="base_link">
-        <child link="odom">
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-    </joint-->
-    <joint name="base_laser" type="fixed">
+    <joint name="joint_laser" type="fixed">
         <parent link="base_link"/>
-        <child link="laser"/>
+        <child link="base_scan"/>
         <origin xyz="0 0 0.3" rpy="0 0 0"/>
     </joint>
-
+    
 </robot>

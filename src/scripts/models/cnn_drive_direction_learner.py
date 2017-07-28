@@ -269,46 +269,62 @@ if __name__ == '__main__':
         os.mkdir(IMG_DIR)
 
     dataset_filenames = {'train_dataset':{'left':[
-                                                  '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-0.tfrecords' % i
-                                                  for i in range(1)
+                                                  '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                  for i in range(2)
                                                   ] +
                                               [
-                                                  '..' + os.sep + 'sample-with-dir-2' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                  '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
                                                   for i in range(1)
                                                   ],
                                          'straight':[
-                                                   '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-1.tfrecords' % i
-                                                   for i in range(2)] +
+                                                   '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                   for i in range(3)] +
                                                [
-                                                   '..' + os.sep + 'sample-with-dir-2' + os.sep + 'image-direction-%d-1.tfrecords' % i
-                                                   for i in range(2)],
+                                                   '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                   for i in range(4)],
                                          'right':[
-                                                   '..' + os.sep + 'sample-with-dir-1' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                   '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
                                                    for i in range(2)] +
                                                [
-                                                   '..' + os.sep + 'sample-with-dir-2' + os.sep + 'image-direction-%d-2.tfrecords' % i
-                                                   for i in range(1)]
+                                                   '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                   for i in range(2)]
                                           },
 
                          'train_bump_dataset':{
                              'left': [
-                                 '..' + os.sep + 'sample-with-dir-1-bump' + os.sep + 'image-direction-%d-0.tfrecords' % i
-                                 for i in range(1)],
+                                         '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                         for i in range(1)] +
+                                     [
+                                         '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                         for i in range(1)]
+                             ,
                              'straight': [
-                                '..' + os.sep + 'sample-with-dir-1-bump' + os.sep + 'image-direction-%d-1.tfrecords' % i
-                                for i in range(1)],
+                                             '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                             for i in range(2)] +
+                                         [
+                                             '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                             for i in range(2)]
+                             ,
                              'right':[
-                                '..' + os.sep + 'sample-with-dir-1-bump' + os.sep + 'image-direction-%d-2.tfrecords' % i
-                                for i in range(1)]
+                                         '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                         for i in range(1)] +
+                                     [
+                                         '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                         for i in range(1)]
                          },
 
-                         'test_dataset: ': ['..' + os.sep + 'sample-with-dir-3' + os.sep + 'image-direction-%d.tfrecords' % i for i in range(4)],
-                         'test_bump_dataset': ['..' + os.sep + 'sample-with-dir-3-bump' + os.sep + 'image-direction-0.tfrecords']}
+                         'test_dataset': ['..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i for i in range(2)]+
+                                           ['..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i for i in range(3)] +
+                                           ['..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i for i in range(2)],
+                         'test_bump_dataset': ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i for i in range(1)] +
+                                              ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i for i in range(2)] +
+                                              ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i for i in range(1)]
+                         }
 
-    dataset_sizes = {'train_dataset':1000+500,
-                     'train_bump_dataset': 600,
-                     'test_dataset': 500,
-                     'test_bump_dataset': 100}
+    dataset_sizes = {'train_dataset':1000+1000,
+                     'train_bump_dataset': 400,
+                     'test_dataset': 1000,
+                     'test_bump_dataset': 200}
 
     predictionlogger = logging.getLogger('PredictionLogger')
     predictionlogger.setLevel(logging.INFO)

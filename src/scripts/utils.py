@@ -15,7 +15,7 @@ IMG_BUFFER = []
 
 IMG_CHANNELS = 3 if TYPE =='REAL' else 4 # /camera/image gives out a sequence of numbers and has to be formed into a matrix. This value specifiy the number of channels
 IMG_SAVE_SKIP = 3 # how many images skipped when saving sequence
-BUMP_IMG_SAVE_SKIP = 3
+BUMP_IMG_SAVE_SKIP = 2
 
 BUMP_IMG_BUFFER_CAP = 25
 BUMP_IMG_BUFFER = []
@@ -47,7 +47,7 @@ BUMP_02_THRESH = 0.18 if TYPE=='REAL' else 0.7 #sim 0.7 real 0.25
 NO_RETURN_THRESH = 0.05
 REVERSE_PUBLISH_DELAY = 0.1 # real 0.12
 ZERO_VEL_PUBLISH_DELAY = 0.01 # publish 0 valued cmd_vel data
-BUMP_LABEL_LENGTH = 3
+BUMP_LABEL_LENGTH = 6
 
 LASER_SKIP = 4
 LASER_FREQUENCY = 40 if TYPE=='REAL' else 10
