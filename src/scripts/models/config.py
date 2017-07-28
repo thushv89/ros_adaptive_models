@@ -25,12 +25,12 @@ TF_BIAS_STR = 'bias'
 TF_MOMENTUM_STR = 'Momentum'
 TF_NUM_CLASSES = 3
 ENABLE_MASKING = True # drop out logits of zero elements on the one-hot vectors so that they are not optimized for that step
-ENABLE_SOFT_CLASSIFICATION = True # use 0.9 and 0.1 instead of 0 and 1 in the one-hot vectors
+ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the one-hot vectors
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
 TF_ANG_SCOPES = ['conv1','conv2','conv3','fc1','out']
 
-FC1_WEIGHTS = 64
+FC1_WEIGHTS = 32
 
 
 if not USE_GRAYSCALE:
@@ -56,4 +56,6 @@ TF_FIRST_FC_ID = 'fc1'
 TF_SDAE_ANG_SCOPES = ['fc1','fc2','fc3','out']
 TF_SDAE_ANG_VAR_SHAPES = {'fc1':[TF_RESIZE_TO[0]*TF_RESIZE_TO[1]*TF_RESIZE_TO[2],512],'fc2':[512,256],'fc3':[256,128],'out':[128,TF_NUM_CLASSES]}
 
-OPTIMIZE_HYBRID_LOSS = False
+OPTIMIZE_HYBRID_LOSS = True
+
+FRACTION_OF_TRAINING_TO_USE = 1

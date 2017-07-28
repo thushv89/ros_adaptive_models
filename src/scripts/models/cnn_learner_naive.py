@@ -28,7 +28,7 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'relu'
+activation = 'lrelu'
 MASK_ZERO_IN_LOSS = True
 
 def build_tensorflw_variables():
@@ -141,7 +141,7 @@ def calculate_loss(tf_inputs, tf_labels):
 
 
 def optimize_model(loss, tf_labels, global_step, use_masking,collision):
-    momentum = 0.9
+    momentum = 0.5
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
@@ -387,7 +387,7 @@ if __name__ == '__main__':
             avg_bump_train_accuracy = []
 
             # Training with Non-Bump Data
-            for step in range(dataset_sizes['train_dataset']//batch_size//2):
+            for step in range(dataset_sizes['train_dataset']//batch_size//config.FRACTION_OF_TRAINING_TO_USE):
 
                 l1, _, _, pred,train_labels = sess.run([tf_loss, tf_optimize,tf_mom_update_ops,
                                                                     tf_train_predictions,tf_labels])

@@ -1,7 +1,7 @@
 import models_utils
 import numpy as np
 
-def test_multiclass_precision_should_return_():
+def test_multiclass_precision_should_return_approximately_0_dot_7_for_each():
     test_labels = np.array([[1,0,0],[1,0,0],[1,0,0],[1,0,0],[1,0,0],
                    [0,1,0],[0,1,0],[0,1,0],[0,1,0],[0,1,0],
                    [0,0,1],[0,0,1],[0,0,1],[0,0,1],[0,0,1]],dtype=np.float32)
@@ -15,4 +15,4 @@ def test_multiclass_precision_should_return_():
 
 
 if __name__=='__main__':
-    test_multiclass_precision_should_return_()
+    test_multiclass_precision_should_return_approximately_0_dot_7_for_each()

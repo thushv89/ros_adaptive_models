@@ -6,7 +6,7 @@ import sys
 
 sess,graph,logger = None,None,None
 
-logging_level = logging.DEBUG
+logging_level = logging.INFO
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 logger = logging.getLogger('ModelsUtilsLogger')
@@ -21,7 +21,7 @@ logger.addHandler(console)
 logger.addHandler(fileHandler)
 
 
-def lrelu(x, leak=0.2, name="lrelu"):
+def lrelu(x, leak=0.01, name="lrelu"):
     with tf.variable_scope(name):
         f1 = 0.5 * (1 + leak)
         f2 = 0.5 * (1 - leak)
@@ -93,9 +93,16 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
 
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         if not use_opposite_label:
-            one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32)
+            if config.ENABLE_SOFT_CLASSIFICATION:
+                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=0.99,off_value=0.0)
+            else:
+                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
         else:
-            one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
+            if config.ENABLE_SOFT_CLASSIFICATION:
+                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-0.99, off_value=0.0)
+            else:
+                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0,
+                                           off_value=0.0)
 
         # standardize image
         image = tf.image.per_image_standardization(image)
@@ -141,15 +148,11 @@ def accuracy(pred,ohe_labels,use_argmin):
 
 def soft_accuracy(pred,ohe_labels, use_argmin):
     if not use_argmin:
-        label_indices = list(np.argmax(ohe_labels,axis=1).flatten())
-        correct_indices = list(np.where(pred[np.arange(pred.shape[0]),label_indices] > 0.01)[0])
         correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()] > 0.01
         correct_boolean_wrt_max = np.argmax(pred,axis=1)==np.argmax(ohe_labels,axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_max))*100.0/pred.shape[0]
         #return len(correct_indices)*100.0/pred.shape[0]
     else:
-        label_indices = list(np.argmin(ohe_labels, axis=1).flatten())
-        correct_indices = list(np.where(pred[np.arange(pred.shape[0]), label_indices] < -0.01)[0])
         correct_boolean = pred[np.arange(pred.shape[0]), np.argmin(ohe_labels, axis=1).flatten()] < -0.01
         correct_boolean_wrt_min = np.argmin(pred, axis=1) == np.argmin(ohe_labels, axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_min))*100.0/pred.shape[0]
