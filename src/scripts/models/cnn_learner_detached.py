@@ -37,7 +37,7 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'tanh'
+activation = 'lrelu'
 
 def build_tensorflw_variables():
     '''
@@ -177,8 +177,8 @@ def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col
     tf_noncol_out  = tf.nn.tanh(tf_noncol_logits)
     tf_col_out = tf.nn.tanh(tf_col_logits)
 
-    loss = tf.reduce_mean(0.8*(tf_noncol_out - tf.cast(tf.reduce_max(tf_noncol_labels,axis=1),dtype=tf.float32))**2 +
-                          0.2*(tf_col_out - tf.cast(tf.reduce_min(tf_col_labels,axis=1),dtype=tf.float32))**2)
+    loss = tf.reduce_mean((tf_noncol_out - tf.cast(tf.reduce_max(tf_noncol_labels,axis=1),dtype=tf.float32))**2 +
+                          (tf_col_out - tf.cast(tf.reduce_min(tf_col_labels,axis=1),dtype=tf.float32))**2)
 
     return loss
 
@@ -194,7 +194,7 @@ def calculate_loss(tf_logits,tf_labels,collision,direction):
     return loss
 
 
-def optimize_model(loss, global_step, direction):
+def optimize_model(loss, global_step, direction, bump_direction):
     momentum = 0.5
     mom_update_ops = []
     grads_and_vars = []
@@ -207,6 +207,16 @@ def optimize_model(loss, global_step, direction):
         with tf.variable_scope(scope,reuse=True):
 
             if scope == 'fc1' or scope == 'out':
+                if bump_direction is not None:
+                    with tf.variable_scope(bump_direction, reuse=True):
+                        w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                        [(g_w, w), (g_b, b)] = optimizer.compute_gradients(loss, [w, b])
+
+                        with tf.variable_scope(config.TF_WEIGHTS_STR, reuse=True):
+                            w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                        with tf.variable_scope(config.TF_BIAS_STR, reuse=True):
+                            b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
                 with tf.variable_scope(direction, reuse=True):
                     w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
                     [(g_w, w), (g_b, b)] = optimizer.compute_gradients(loss, [w, b])
@@ -231,6 +241,60 @@ def optimize_model(loss, global_step, direction):
 
     optimize = optimizer.apply_gradients(grads_and_vars)
     #optimize = tf.train.MomentumOptimizer(momentum=0.9, learning_rate=learning_rate).minimize(loss)
+
+    return optimize, mom_update_ops, learning_rate
+
+
+def optimize_model_with_averaging(losses, global_step, direction_to_bump_direction_map):
+
+    momentum = 0.5
+    mom_update_ops = []
+    grads_and_vars = []
+    learning_rate = tf.maximum(
+        tf.train.exponential_decay(0.01, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+                                   name='learning_rate_decay'), 1e-4)
+
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    for si, scope in enumerate(config.TF_ANG_SCOPES):
+        with tf.variable_scope(scope, reuse=True):
+
+            if scope == 'fc1' or scope == 'out':
+
+                for di in ['left','straight','right']:
+
+                    with tf.variable_scope(direction_to_bump_direction_map[di], reuse=True):
+                        w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                        [(g_w, w), (g_b, b)] = optimizer.compute_gradients(losses[direction], [w, b])
+
+                        with tf.variable_scope(config.TF_WEIGHTS_STR, reuse=True):
+                            w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                        with tf.variable_scope(config.TF_BIAS_STR, reuse=True):
+                            b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
+                    with tf.variable_scope(direction, reuse=True):
+                        w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                        [(g_w, w), (g_b, b)] = optimizer.compute_gradients(loss, [w, b])
+
+                        with tf.variable_scope(config.TF_WEIGHTS_STR, reuse=True):
+                            w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                        with tf.variable_scope(config.TF_BIAS_STR, reuse=True):
+                            b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
+            else:
+                w, b = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                [(g_w, w), (g_b, b)] = optimizer.compute_gradients(loss, [w, b])
+                with tf.variable_scope(config.TF_WEIGHTS_STR, reuse=True):
+                    w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                with tf.variable_scope(config.TF_BIAS_STR, reuse=True):
+                    b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
+            mom_update_ops.append(tf.assign(w_vel, momentum * w_vel + g_w))
+            grads_and_vars.append((w_vel * learning_rate, w))
+            mom_update_ops.append(tf.assign(b_vel, momentum * b_vel + g_b))
+            grads_and_vars.append((b_vel * learning_rate, b))
+
+    optimize = optimizer.apply_gradients(grads_and_vars)
+    # optimize = tf.train.MomentumOptimizer(momentum=0.9, learning_rate=learning_rate).minimize(loss)
 
     return optimize, mom_update_ops, learning_rate
 
@@ -405,9 +469,9 @@ if __name__ == '__main__':
                                                          collision=True, direction=direction)
 
                 tf_optimize[direction], tf_mom_update_ops[direction], \
-                tf_noncol_lr = optimize_model(tf_loss[direction],noncol_global_step,direction=direction)
+                tf_noncol_lr = optimize_model(tf_loss[direction],noncol_global_step,direction=direction,bump_direction=None)
                 tf_bump_optimize[direction], tf_bump_mom_update_ops[direction], \
-                tf_col_lr = optimize_model(tf_bump_loss[direction],col_global_step,direction=direction)
+                tf_col_lr = optimize_model(tf_bump_loss[direction],col_global_step,direction=direction,bump_direction=None)
 
             else:
                 if direction=='left':
@@ -420,7 +484,7 @@ if __name__ == '__main__':
                 tf_loss[direction] = calculate_hybrid_loss(tf_logits[direction],tf_labels[direction],
                                                            tf_bump_logits[bump_direction],tf_bump_labels[bump_direction])
 
-                tf_optimize[direction], tf_mom_update_ops[direction], tf_noncol_lr = optimize_model(tf_loss[direction],noncol_global_step,direction=direction)
+                tf_optimize[direction], tf_mom_update_ops[direction], tf_noncol_lr = optimize_model(tf_loss[direction],noncol_global_step,direction=direction,bump_direction=bump_direction)
 
         tf_test_images,tf_test_labels = models_utils.build_input_pipeline(dataset_filenames['test_dataset'],batch_size,shuffle=True,
                                                              training_data=False,use_opposite_label=False,inputs_for_sdae=False)
