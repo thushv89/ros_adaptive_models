@@ -49,6 +49,7 @@ def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefi
         im_raw = im_mat.tostring()
 
         example = tf.train.Example(features=tf.train.Features(feature={
+            config.FEAT_IMG_ID: _int64_feature(img_id),
             config.FEAT_IMG_HEIGHT: _int64_feature(rows),
             config.FEAT_IMG_WIDTH: _int64_feature(cols),
             config.FEAT_IMG_CH: _int64_feature(ch),
@@ -71,8 +72,8 @@ def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefi
         writers[di].close()
 
 if __name__ == '__main__':
-    is_bump_data = True
-    data_folder = '.'+os.sep+ '..'+ os.sep+'data_sandbox_bump_200'
+    is_bump_data = False
+    data_folder = '.'+os.sep+ '..'+ os.sep+'data_indoor_1_1000'
 
     angle_dict = {}
     direction_dict = {}

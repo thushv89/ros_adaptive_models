@@ -28,8 +28,9 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'lrelu'
-MASK_ZERO_IN_LOSS = True
+activation = 'relu'
+MASK_ZERO_IN_LOSS = False
+MASK_ZERO_IN_LOSS_RANDOM = False
 
 def build_tensorflw_variables():
     '''
@@ -49,6 +50,7 @@ def build_tensorflw_variables():
                 # the variable exists, you will get a ValueError saying the variable exists
 
                 try:
+                    if 'pool' not in scope:
                         tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
                                                   initializer=tf.truncated_normal_initializer(stddev=0.02,dtype=tf.float32))
                         tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
@@ -80,7 +82,8 @@ def logits(tf_inputs):
     with tf.name_scope('infer'):
         for si, scope in enumerate(config.TF_ANG_SCOPES):
             with tf.variable_scope(scope,reuse=True) as sc:
-                weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                if 'pool' not in scope:
+                    weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
 
                 if 'conv' in scope:
                     logger.info('\t\tConvolution with ReLU activation for %s',scope)
@@ -89,6 +92,10 @@ def logits(tf_inputs):
                     else:
                         h = models_utils.activate(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias, activation,
                                        name='hidden')
+                elif 'pool' in scope:
+                    logger.info('\t\tMax pooling for %s', scope)
+                    h = tf.nn.max_pool(h,config.TF_ANG_VAR_SHAPES_NAIVE[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
+
                 else:
                     # Reshaping required for the first fulcon layer
                     if scope == 'out':
@@ -120,9 +127,9 @@ def predictions_with_inputs(tf_inputs):
     return tf.nn.tanh(tf_logits)
 
 
-def calculate_hybrid_loss(tf_noncol_inputs,tf_noncol_labels,tf_col_inputs,tf_col_labels):
-    tf_col_out = logits(tf_col_inputs,tf_col_labels,True)
-    tf_noncol_out = logits(tf_noncol_inputs,tf_noncol_labels,False)
+def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col_labels):
+    tf_col_out = tf_col_logits
+    tf_noncol_out = tf_noncol_logits
 
     tf_col_arg = tf.cast(tf.reduce_min(tf_col_labels, axis=1), dtype=tf.float32)
     tf_noncol_arg = tf.cast(tf.reduce_max(tf_noncol_labels, axis=1), dtype=tf.float32)
@@ -131,13 +138,16 @@ def calculate_hybrid_loss(tf_noncol_inputs,tf_noncol_labels,tf_col_inputs,tf_col
     return loss
 
 
-def calculate_loss(tf_inputs, tf_labels):
+def calculate_loss(tf_logits, tf_labels):
 
-    tf_out = logits(tf_inputs)
+    tf_out = tf_logits
     if MASK_ZERO_IN_LOSS:
         tf_out = tf_out * tf.cast(tf.not_equal(tf_labels,0),dtype=tf.float32)
+    if MASK_ZERO_IN_LOSS_RANDOM:
+        tf_out = tf_out * tf.cast(tf.equal(tf_labels,0),dtype=tf.float32) * tf.cast(tf.greater(tf.random_normal([batch_size,3]),0.0),dtype=tf.float32)
+
     loss = tf.reduce_mean(tf.reduce_sum((tf.nn.tanh(tf_out) - tf_labels)**2,axis=[1]))
-    return loss,tf_out
+    return loss
 
 
 def optimize_model(loss, tf_labels, global_step, use_masking,collision):
@@ -145,7 +155,7 @@ def optimize_model(loss, tf_labels, global_step, use_masking,collision):
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.01, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+        tf.train.exponential_decay(0.02, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
     if use_masking:
@@ -158,6 +168,9 @@ def optimize_model(loss, tf_labels, global_step, use_masking,collision):
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     for si, scope in enumerate(config.TF_ANG_SCOPES):
+        if 'pool' in scope:
+            continue
+
         with tf.variable_scope(scope,reuse=True):
             w,b = tf.get_variable(config.TF_WEIGHTS_STR),tf.get_variable(config.TF_BIAS_STR)
             [(g_w,w),(g_b,b)] = optimizer.compute_gradients(loss,[w,b])
@@ -340,37 +353,40 @@ if __name__ == '__main__':
 
         all_train_files,all_bump_files = [],[]
         all_test_files,all_bump_test_files = [],[]
+
         for di in ['left','straight','right']:
             all_train_files.extend(dataset_filenames['train_dataset'][di])
             all_bump_files.extend(dataset_filenames['train_bump_dataset'][di])
             all_test_files.extend(dataset_filenames['test_dataset'])
             all_bump_test_files.extend(dataset_filenames['test_bump_dataset'])
 
-        tf_images,tf_labels = models_utils.build_input_pipeline(
+        tf_img_ids, tf_images,tf_labels = models_utils.build_input_pipeline(
             all_train_files,batch_size,shuffle=True,
             training_data=True,use_opposite_label=False,inputs_for_sdae=False)
 
-        tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
+        tf_bump_img_ids, tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
             all_bump_files, batch_size, shuffle=True,
             training_data=True, use_opposite_label=True,inputs_for_sdae=False)
 
-        tf_loss, tf_logits = calculate_loss(tf_images, tf_labels)
+        tf_logits = logits(tf_images)
+        tf_loss = calculate_loss(tf_logits, tf_labels)
 
         if not config.OPTIMIZE_HYBRID_LOSS:
-            tf_bump_loss, tf_bump_logits  = calculate_loss(tf_bump_images, tf_bump_labels)
+            tf_bump_logits = logits(tf_bump_images)
+            tf_bump_loss = calculate_loss(tf_bump_logits, tf_bump_labels)
 
             tf_optimize, tf_mom_update_ops, tf_grads = optimize_model(tf_loss, tf_labels, noncol_global_step, use_masking=False,collision=False)
-            tf_bump_optimize, tf_bump_mom_update_ops, tf_bump_grads = optimize_model(tf_bump_loss, tf_labels, col_global_step, use_masking=False,collision=True)
+            tf_bump_optimize, tf_bump_mom_update_ops, tf_bump_grads = optimize_model(tf_bump_loss, tf_bump_labels, col_global_step, use_masking=False,collision=True)
         else:
             raise NotImplementedError
 
         tf_train_predictions = predictions_with_inputs(tf_images)
         tf_train_bump_predictions = predictions_with_inputs(tf_bump_images)
 
-        tf_test_images,tf_test_labels = models_utils.build_input_pipeline(all_test_files,batch_size,shuffle=False,
-                                                             training_data=False,use_opposite_label=False,inputs_for_sdae=False)
-        tf_bump_test_images, tf_bump_test_labels = models_utils.build_input_pipeline(all_bump_test_files, batch_size, shuffle=False,
-                                                              training_data=False,use_opposite_label=True,inputs_for_sdae=False)
+        tf_test_img_ids, tf_test_images,tf_test_labels = models_utils.build_input_pipeline(all_test_files,batch_size,shuffle=False,
+                                                                          training_data=False, use_opposite_label=False, inputs_for_sdae=False)
+        tf_bump_test_img_ids, tf_bump_test_images, tf_bump_test_labels = models_utils.build_input_pipeline(all_bump_test_files, batch_size, shuffle=False,
+                                                                                     training_data=False, use_opposite_label=True, inputs_for_sdae=False)
 
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord, sess=sess)

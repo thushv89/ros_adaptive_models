@@ -75,13 +75,15 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
 
         features = tf.parse_single_example(
             serial_example,
-            features = {config.FEAT_IMG_RAW : tf.FixedLenFeature([], tf.string),
-                        config.FEAT_LABEL : tf.FixedLenFeature([], tf.int64)}
+            features = {
+                config.FEAT_IMG_ID : tf.FixedLenFeature([], tf.int64),
+                config.FEAT_IMG_RAW : tf.FixedLenFeature([], tf.string),
+                config.FEAT_LABEL : tf.FixedLenFeature([], tf.int64)
+            }
         )
 
         image = tf.decode_raw(features[config.FEAT_IMG_RAW], tf.float32)
         image = tf.cast(image,tf.float32)
-        #image = tf.image.convert_image_dtype(image, dtype=tf.float32, name='float_image')
         image = tf.reshape(image,config.TF_INPUT_SIZE,name='reshape_1d_to_3d')
         image.set_shape(config.TF_INPUT_SIZE)
 
@@ -89,20 +91,21 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
             image = tf.image.rgb_to_grayscale(image,name='grayscale_image')
         if training_data:
             image = tf.image.random_brightness(image, 0.5, seed=13345432)
-            image = tf.image.random_contrast(image, 0, 0.5, seed=2353252)
+            image = tf.image.random_contrast(image, lower=0.1, upper=1.8, seed=2353252)
 
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
+        ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
+
         if not use_opposite_label:
             if config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=0.99,off_value=0.0)
+                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=0.5,off_value=0.0)
             else:
                 one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
         else:
             if config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-0.99, off_value=0.0)
+                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-0.5, off_value=0.0)
             else:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0,
-                                           off_value=0.0)
+                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
 
         # standardize image
         image = tf.image.per_image_standardization(image)
@@ -116,20 +119,68 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
         # The batching mechanism that takes a output produced by reader (with preprocessing) and outputs a batch tensor
         # [batch_size, height, width, depth] 4D tensor
         if not shuffle:
-            image_batch,label_batch = tf.train.batch([image,one_hot_label], batch_size=batch_size,
+            img_id_batch, image_batch,label_batch = tf.train.batch([ids, image,one_hot_label], batch_size=batch_size,
                                      capacity=10, name='image_batch', allow_smaller_final_batch=True)
         else:
-            image_batch,label_batch = tf.train.shuffle_batch([image,one_hot_label], batch_size=batch_size,
+            img_id_batch, image_batch,label_batch = tf.train.shuffle_batch([ids, image,one_hot_label], batch_size=batch_size,
                                      capacity=10, name='image_batch', allow_smaller_final_batch=True,min_after_dequeue=5)
         if training_data:
-            flip_rand = tf.random_uniform(shape=[1],minval=0, maxval=1.0, seed=154324654)
-            image_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(image_batch,axis=[1]), lambda: image_batch)
+            flip_rand = tf.random_uniform(shape=[1], minval=0, maxval=1.0, seed=154324654)
+            image_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(image_batch,axis=[2]), lambda: image_batch)
             label_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(label_batch,axis=[1]),lambda: label_batch)
+
         record_count = reader.num_records_produced()
         # to use record reader we need to use a Queue either random
 
     print('Preprocessing done\n')
-    return image_batch,label_batch
+    return img_id_batch, image_batch,label_batch
+
+
+def get_id_vector_for_correctly_predicted_samples(img_ids, pred, ohe_labels, direction_index, enable_soft_accuracy, use_argmin):
+
+    if not enable_soft_accuracy:
+        if not use_argmin:
+            label_indices_to_consider = np.where(np.argmax(ohe_labels,axis=1)==direction_index)[0]
+            correct_indices_to_consider = np.where(np.argmax(pred[label_indices_to_consider,:],axis=1)==direction_index)[0]
+        else:
+            label_indices_to_consider = np.where(np.argmin(ohe_labels,axis=1)==direction_index)[0]
+            correct_indices_to_consider = \
+            np.where(np.argmin(pred[label_indices_to_consider, :], axis=1) == direction_index)[0]
+    else:
+        if not use_argmin:
+            label_indices_to_consider = np.where(np.argmax(ohe_labels,axis=1)==direction_index)[0]
+            correct_indices_to_consider = np.where(np.argmax(pred[label_indices_to_consider,:],axis=1)==direction_index)[0]
+            pred_indices_above_threshold = np.where(pred[label_indices_to_consider,np.ones([pred.shape[0]],dtype=np.int32)*direction_index]>0.01)[0]
+            correct_indices_to_consider = np.union1d(correct_indices_to_consider,pred_indices_above_threshold)
+        else:
+            label_indices_to_consider = np.where(np.argmin(ohe_labels,axis=1)==direction_index)[0]
+            correct_indices_to_consider = \
+            np.where(np.argmin(pred[label_indices_to_consider, :], axis=1) == direction_index)[0]
+            pred_indices_above_threshold = np.where(pred[label_indices_to_consider,np.ones([pred.shape[0]],dtype=np.int32)*direction_index]<-0.01)[0]
+            correct_indices_to_consider = np.union1d(correct_indices_to_consider,pred_indices_above_threshold)
+
+    return list(img_ids[correct_indices_to_consider].flatten())
+
+
+def get_id_vector_for_predicted_samples(img_ids, pred, ohe_labels, direction_index, enable_soft_accuracy, use_argmin):
+
+    if not enable_soft_accuracy:
+        if not use_argmin:
+            indices_to_consider = np.where(np.argmax(pred,axis=1)==direction_index)[0]
+        else:
+            indices_to_consider = np.where(np.argmin(pred,axis=1)==direction_index)[0]
+
+    else:
+        if not use_argmin:
+            indices_to_consider = np.where(np.argmax(pred,axis=1)==direction_index)[0]
+            pred_indices_above_threshold = np.where(pred[np.arange(pred.shape[0]),np.ones([pred.shape[0]],dtype=np.int32)*direction_index]>0.01)[0]
+            indices_to_consider = np.union1d(indices_to_consider,pred_indices_above_threshold)
+        else:
+            indices_to_consider = np.where(np.argmin(pred,axis=1)==direction_index)[0]
+            pred_indices_above_threshold = np.where(pred[np.arange(pred.shape[0]),np.ones([pred.shape[0]],dtype=np.int32)*direction_index]<-0.01)[0]
+            indices_to_consider = np.union1d(indices_to_consider,pred_indices_above_threshold)
+
+    return list(img_ids[indices_to_consider].flatten())
 
 
 def accuracy(pred,ohe_labels,use_argmin):
