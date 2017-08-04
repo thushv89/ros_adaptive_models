@@ -29,7 +29,7 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'relu'
+activation = 'lrelu'
 
 def build_tensorflw_variables():
     '''
@@ -190,8 +190,8 @@ def calculate_loss(tf_logits,tf_labels,collision):
 
 
 def optimize_model(loss, global_step, direction):
-    momentum_detached = 0.5
-    momentum_common = 0.25
+    momentum_detached = 0.0
+    momentum_common = 0.0
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
@@ -450,6 +450,7 @@ if __name__ == '__main__':
 
         tf.global_variables_initializer().run(session=sess)
 
+        rand_direction = None
         for epoch in range(120):
             avg_loss = []
             avg_bump_loss = []
@@ -458,21 +459,17 @@ if __name__ == '__main__':
             if not config.OPTIMIZE_HYBRID_LOSS:
                 for step in range(dataset_sizes['train_dataset']//batch_size//config.FRACTION_OF_TRAINING_TO_USE):
 
-                    rand_direction = np.random.choice(['left', 'straight', 'right'], p=[0.3,0.4,0.3])
-                    l1, _, _ = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction],tf_mom_update_ops[rand_direction],
-                                                                        ])
-                    avg_loss.append(l1)
+                    if np.random.random()<0.6:
+                        rand_direction = np.random.choice(['left', 'straight', 'right'])
+                        l1, _, _ = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction],tf_mom_update_ops[rand_direction],
+                                                                            ])
+                        avg_loss.append(l1)
+                    else:
 
-                    #rand_direction = np.random.choice(['left', 'straight', 'right'])
-                    if rand_direction == 'left':
-                        rand_direction = 'straight'
-                    elif rand_direction == 'straight':
-                        rand_direction = 'right'
-                    elif rand_direction == 'right':
-                        rand_direction = 'left'
-                    bump_l1, _, _ = sess.run([tf_bump_loss[rand_direction], tf_bump_optimize[rand_direction],
-                                                                            tf_bump_mom_update_ops[rand_direction]])
-                    avg_bump_loss.append(bump_l1)
+                        rand_direction = np.random.choice(['left', 'straight', 'right'])
+                        bump_l1, _, _ = sess.run([tf_bump_loss[rand_direction], tf_bump_optimize[rand_direction],
+                                                                                tf_bump_mom_update_ops[rand_direction]])
+                        avg_bump_loss.append(bump_l1)
 
                 if min_noncol_loss > np.mean(avg_loss):
                     min_noncol_loss = np.mean(avg_loss)

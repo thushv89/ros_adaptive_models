@@ -26,7 +26,7 @@ TF_BIAS_STR = 'bias'
 TF_MOMENTUM_STR = 'Momentum'
 TF_NUM_CLASSES = 3
 ENABLE_MASKING = True # drop out logits of zero elements on the one-hot vectors so that they are not optimized for that step
-ENABLE_SOFT_CLASSIFICATION = True # use 0.9 and 0.1 instead of 0 and 1 in the one-hot vectors
+ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the one-hot vectors
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
 
