@@ -20,8 +20,48 @@ def _bytes_feature(value):
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 
+def dump_to_tfrecord_suffled(data_folder, drive_direct_dict, image_ids,image_fname_prefix, max_instances_per_file):
+    """
+    Converts a dataset to tfrecords.
+    :param data_folder:
+    :param name:
+    :return:
+    """
+    #print(os.getcwd()) # use to get the current working directory
+    print('Running shuffled save')
+    items_written = 0
 
-def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefix, max_instances_per_file):
+
+    # create 3 tf records each for each direction
+
+    tfrecords_filename = data_folder + os.sep + 'image-direction-shuffled.tfrecords'
+    writer = tf.python_io.TFRecordWriter(tfrecords_filename)
+
+    # create example for each image write with the writer
+    np.random.shuffle(image_ids)
+
+    for img_id in image_ids:
+        im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
+        im_mat = np.array(im,dtype=np.float32)
+        (rows,cols,ch) = im_mat.shape
+        im_raw = im_mat.tostring()
+
+        example = tf.train.Example(features=tf.train.Features(feature={
+            config.FEAT_IMG_ID: _int64_feature(img_id),
+            config.FEAT_IMG_HEIGHT: _int64_feature(rows),
+            config.FEAT_IMG_WIDTH: _int64_feature(cols),
+            config.FEAT_IMG_CH: _int64_feature(ch),
+            config.FEAT_IMG_RAW: _bytes_feature(im_raw),
+            config.FEAT_LABEL: _int64_feature(drive_direct_dict[img_id])
+        }))
+        writer.write(example.SerializeToString())
+        items_written += 1
+
+
+    writer.close()
+
+
+def dump_to_tfrecord_sorted_by_direction(data_folder, drive_direct_dict, image_ids,image_fname_prefix, max_instances_per_file):
     """
     Converts a dataset to tfrecords.
     :param data_folder:
@@ -72,8 +112,8 @@ def dump_to_tfrecord(data_folder, drive_direct_dict, image_ids,image_fname_prefi
         writers[di].close()
 
 if __name__ == '__main__':
-    is_bump_data = False
-    data_folder = '.'+os.sep+ '..'+ os.sep+'data_indoor_1_1000'
+    is_bump_data = True
+    data_folder = '.'+os.sep+ '..'+ os.sep+'data_indoor_1_bump_200'
 
     angle_dict = {}
     direction_dict = {}
@@ -92,13 +132,13 @@ if __name__ == '__main__':
         print(e)
 
     if not is_bump_data:
-        data_indices = range(0, 500)
+        data_indices = img_indices
         image_fname_prefix = 'img'
     else:
         data_indices = img_indices
         image_fname_prefix = 'bump_img'
 
-    dump_to_tfrecord(data_folder,direction_dict,data_indices,image_fname_prefix,max_instances_per_file=100)
+    dump_to_tfrecord_suffled(data_folder,direction_dict,data_indices,image_fname_prefix,max_instances_per_file=100)
 
     '''record_iterator = tf.python_io.tf_record_iterator(path=data_folder + os.sep + 'image-direction-0-0.tfrecords')
 

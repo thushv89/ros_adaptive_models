@@ -45,6 +45,7 @@ def set_from_main(main_sess,main_graph, main_logger):
     graph = main_graph
     #logger = main_logger
 
+
 def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae):
     '''
 
@@ -93,6 +94,8 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
             image = tf.image.random_brightness(image, 0.5, seed=13345432)
             image = tf.image.random_contrast(image, lower=0.1, upper=1.8, seed=2353252)
 
+        image = tf.image.crop_to_bounding_box(image,20,0,56,128)
+        image = tf.image.resize_images(image,[56,96])
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
 
@@ -120,15 +123,17 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
         # [batch_size, height, width, depth] 4D tensor
         if not shuffle:
             img_id_batch, image_batch,label_batch = tf.train.batch([ids, image,one_hot_label], batch_size=batch_size,
-                                     capacity=10, name='image_batch', allow_smaller_final_batch=True)
+                                     capacity=10, name='image_batch', allow_smaller_final_batch=False)
         else:
             img_id_batch, image_batch,label_batch = tf.train.shuffle_batch([ids, image,one_hot_label], batch_size=batch_size,
-                                     capacity=10, name='image_batch', allow_smaller_final_batch=True,min_after_dequeue=5)
+                                     capacity=10, name='image_batch', allow_smaller_final_batch=False,min_after_dequeue=5)
         if training_data:
             flip_rand = tf.random_uniform(shape=[1], minval=0, maxval=1.0, seed=154324654)
             image_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(image_batch,axis=[2]), lambda: image_batch)
             label_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(label_batch,axis=[1]),lambda: label_batch)
 
+        image_batch.set_shape([batch_size]+config.TF_INPUT_AFTER_RESIZE)
+        label_batch.set_shape([batch_size]+[config.TF_NUM_CLASSES])
         record_count = reader.num_records_produced()
         # to use record reader we need to use a Queue either random
 
@@ -197,20 +202,20 @@ def accuracy(pred,ohe_labels,use_argmin):
         return np.sum(np.argmin(pred, axis=1) == np.argmin(ohe_labels, axis=1)) * 100.0 / (pred.shape[0] * 1.0)
 
 
-def soft_accuracy(pred,ohe_labels, use_argmin):
+def soft_accuracy(pred,ohe_labels, use_argmin, max_thresh, min_thresh):
     if not use_argmin:
-        correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()] > 0.01
+        correct_boolean = pred[np.arange(pred.shape[0]),np.argmax(ohe_labels,axis=1).flatten()] > max_thresh
         correct_boolean_wrt_max = np.argmax(pred,axis=1)==np.argmax(ohe_labels,axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_max))*100.0/pred.shape[0]
         #return len(correct_indices)*100.0/pred.shape[0]
     else:
-        correct_boolean = pred[np.arange(pred.shape[0]), np.argmin(ohe_labels, axis=1).flatten()] < -0.01
+        correct_boolean = pred[np.arange(pred.shape[0]), np.argmin(ohe_labels, axis=1).flatten()] < min_thresh
         correct_boolean_wrt_min = np.argmin(pred, axis=1) == np.argmin(ohe_labels, axis=1)
         return np.sum(np.logical_or(correct_boolean,correct_boolean_wrt_min))*100.0/pred.shape[0]
         #return len(correct_indices) * 100.0 / pred.shape[0]
 
 
-def precision_multiclass(pred,ohe_labels, use_argmin):
+def precision_multiclass(pred,ohe_labels, use_argmin, max_thresh, min_thresh):
     #     T POS (Correctly Classified Positive)
     # --------------
     # T POS + F POS (All classfied Positive)
@@ -238,7 +243,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         #    di_greater_than_threshold =
         prediction_indices_binned_to_direct = [ np.where(
             np.logical_or(
-                pred[np.arange(pred.shape[0]), np.ones(pred.shape[0],dtype=np.int32)*i] > 0.01,
+                pred[np.arange(pred.shape[0]), np.ones(pred.shape[0],dtype=np.int32)*i] > max_thresh,
                 np.argmax(pred, axis=1) == np.ones(pred.shape[0],dtype=np.int32)*i
             )==True)[0] for i in range(3)
         ]
@@ -272,7 +277,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         # where array items are the indices of that direction
         label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
-            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < -0.01,
+            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < min_thresh,
             np.argmin(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
                                                for i in range(3)
                                                ]
@@ -286,7 +291,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin):
         return precision_array
 
 
-def recall_multiclass(pred, ohe_labels, use_argmin):
+def recall_multiclass(pred, ohe_labels, use_argmin, max_thresh, min_thresh):
     #      T POS   (Correctly classified postives)
     # ----------------
     #  T POS + F NEG (Total actual positives)
@@ -296,7 +301,7 @@ def recall_multiclass(pred, ohe_labels, use_argmin):
         # where array items are the indices of that direction
         label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
-            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] > 0.01,
+            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] > max_thresh,
             np.argmax(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
                                                for i in range(3)
                                                ]
@@ -316,7 +321,7 @@ def recall_multiclass(pred, ohe_labels, use_argmin):
         # where array items are the indices of that direction
         label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
-            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < -0.01,
+            pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < min_thresh,
             np.argmin(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
                                                for i in range(3)
                                                ]

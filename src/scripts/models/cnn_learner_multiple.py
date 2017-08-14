@@ -30,12 +30,12 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'relu'
+activation = 'tanh'
 
-max_thresh = 0.05
-min_thresh = -0.05
+max_thresh = 0.51
+min_thresh = 0.49
 
-def logits(tf_inputs):
+def logits(tf_inputs,direction):
     '''
     Inferencing the model. The input (tf_inputs) is propagated through convolutions poolings
     fully-connected layers to obtain the final softmax output
@@ -45,72 +45,68 @@ def logits(tf_inputs):
     global logger
     logger.info('Defining inference ops ...')
     with tf.name_scope('infer'):
-        for si, scope in enumerate(config.TF_ANG_SCOPES):
-            with tf.variable_scope(scope,reuse=True) as sc:
+        with tf.variable_scope(direction,reuse=True):
+            for si, scope in enumerate(config.TF_ANG_SCOPES):
+                with tf.variable_scope(scope,reuse=True) as sc:
+                    if 'pool' not in scope:
+                        weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
 
-                if 'conv' in scope:
-                    weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
-                    logger.info('\t\tConvolution with %s activation for %s',activation,scope)
-                    if si == 0:
-                        h = models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='hidden')
+                    if 'conv' in scope:
+                        logger.info('\t\tConvolution with ReLU activation for %s',scope)
+                        if si == 0:
+                            h = models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='hidden')
+                        else:
+                            h = models_utils.activate(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias, activation,
+                                           name='hidden')
+                    elif 'pool' in scope:
+                        logger.info('\t\tMax pooling for %s', scope)
+                        h = tf.nn.max_pool(h,config.TF_ANG_VAR_SHAPES_MULTIPLE[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
+
                     else:
-                        h = models_utils.activate(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias, activation,
-                                       name='hidden')
-                elif 'pool' in scope:
-                    logger.info('\t\tMax pooling for %s', scope)
-                    h = tf.nn.max_pool(h,config.TF_ANG_VAR_SHAPES_NAIVE[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
+                        # Reshaping required for the first fulcon layer
+                        if scope == 'out':
+                            logger.info('\t\tFully-connected with output Logits for %s',scope)
+                            h = tf.matmul(h, weight) + bias
 
-                else:
-                    weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
-                    # Reshaping required for the first fulcon layer
-                    if scope == 'out':
-                        logger.info('\t\tFully-connected with output Logits for %s',scope)
-                        h = tf.matmul(h, weight) + bias
+                        elif 'fc' in scope:
+                            if scope == config.TF_FIRST_FC_ID:
+                                h_shape = h.get_shape().as_list()
+                                logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
+                                h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
+                                h = models_utils.activate(tf.matmul(h, weight) + bias, activation)
 
-                    elif 'fc' in scope:
-                        if scope == config.TF_FIRST_FC_ID:
-                            h_shape = h.get_shape().as_list()
-                            logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
-                            h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
-                            h = models_utils.activate(tf.matmul(h, weight) + bias, activation)
-
+                            else:
+                                raise NotImplementedError
                         else:
                             raise NotImplementedError
-                    else:
-                        raise NotImplementedError
 
     return h
 
 
-def predictions_with_logits(logits):
-    pred = tf.nn.tanh(logits)
-    return pred
+def predictions_with_logits(logits_for_all_directions):
+    all_predictions = []
+    for logits in logits_for_all_directions:
+        pred = tf.nn.sigmoid(logits)
+        all_predictions.append(tf.squeeze(pred))
+    return tf.stack(all_predictions,axis=1)
 
 
 def predictions_with_inputs(tf_inputs):
-    tf_logits = logits(tf_inputs)
-    return tf.nn.tanh(tf_logits)
+    all_predictions = []
+    for di in ['left','straight','right']:
+        tf_logits = logits(tf_inputs,di)
+        pred = tf.nn.sigmoid(tf_logits)
+        all_predictions.append(tf.squeeze(pred))
 
-
-def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col_labels):
-    tf_col_out = tf_col_logits
-    tf_noncol_out = tf_noncol_logits
-
-    tf_col_arg = tf.cast(tf.reduce_min(tf_col_labels, axis=1), dtype=tf.float32)
-    tf_noncol_arg = tf.cast(tf.reduce_max(tf_noncol_labels, axis=1), dtype=tf.float32)
-
-    loss = tf.reduce_mean((tf.nn.tanh(tf_col_out) - tf_col_arg)**2 + (tf.nn.tanh(tf_noncol_out) - tf_noncol_arg)**2)
-    return loss
+    return tf.stack(all_predictions,axis=1)
 
 
 def calculate_loss(tf_logits, tf_labels):
 
     tf_out = tf_logits
-    tf_label_weights = tf.reduce_mean(tf_labels,axis=[0])
 
-    # use appropriately to weigh output *(1-tf.abs(tf_label_weights)
-    loss = tf.reduce_mean(tf.reduce_sum(((tf.nn.tanh(tf_out) - tf_labels)**2),axis=[1]),axis=[0])
-    #loss = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_logits,labels=tf_labels)*tf_label_weights,axis=[1]))
+    #loss = tf.reduce_mean(tf.reduce_sum(((tf.nn.softmax(tf_out) - tf_labels)**2)*tf_label_weights,axis=[1]))
+    loss = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_logits,labels=tf_labels),axis=[1]))
     return loss
 
 
@@ -136,14 +132,56 @@ if __name__ == '__main__':
     if IMG_DIR and not os.path.exists(IMG_DIR):
         os.mkdir(IMG_DIR)
 
-    dataset_filenames = {
-        'train_dataset': ['..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-shuffled.tfrecords'],
-        'train_bump_dataset': [
-            '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-shuffled.tfrecords'],
-        'test_dataset': ['..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-shuffled.tfrecords'],
-        'test_bump_dataset': [
-            '..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-shuffled.tfrecords']
-    }
+    dataset_filenames = {'train_dataset': {'left': [
+                                                       '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                       for i in range(2)
+                                                       ] +
+                                                   [
+                                                       '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                                       for i in range(1)
+                                                       ],
+                                           'straight': [
+                                                           '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                           for i in range(3)] +
+                                                       [
+                                                           '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                                           for i in range(4)],
+                                           'right': [
+                                                        '..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                        for i in range(2)] +
+                                                    [
+                                                        '..' + os.sep + 'data_sandbox_1000' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                                        for i in range(2)]
+                                           },
+
+                         'train_bump_dataset': {
+                             'left': [
+                                         '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                         for i in range(1)] +
+                                     [
+                                         '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-0.tfrecords' % i
+                                         for i in range(1)]
+                             ,
+                             'straight': [
+                                             '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                             for i in range(2)] +
+                                         [
+                                             '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-1.tfrecords' % i
+                                             for i in range(2)]
+                             ,
+                             'right': [
+                                          '..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                          for i in range(1)] +
+                                      [
+                                          '..' + os.sep + 'data_sandbox_bump_200' + os.sep + 'image-direction-%d-2.tfrecords' % i
+                                          for i in range(1)]
+                         },
+
+                         'test_dataset': [
+                                             '..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-shuffled.tfrecords'],
+                         'test_bump_dataset': [
+                                                  '..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-shuffled.tfrecords' ]
+                         }
 
     dataset_sizes = {'train_dataset': 1000 + 1000,
                      'train_bump_dataset': 400,
@@ -186,7 +224,7 @@ if __name__ == '__main__':
 
     with sess.as_default() and graph.as_default():
         cnn_variable_initializer.set_from_main(sess,graph)
-        cnn_variable_initializer.build_tensorflw_variables_naive()
+        cnn_variable_initializer.build_tensorflw_variables_multiple()
         models_utils.set_from_main(sess,graph,logger)
 
         noncol_global_step = tf.Variable(0, trainable=False)
@@ -203,25 +241,48 @@ if __name__ == '__main__':
         all_test_files = dataset_filenames['test_dataset']
         all_bump_test_files = dataset_filenames['test_bump_dataset']
 
-        tf_img_ids, tf_images,tf_labels = models_utils.build_input_pipeline(
-            all_train_files,batch_size,shuffle=True,
-            training_data=True,use_opposite_label=False,inputs_for_sdae=False)
+        tf_img_ids, tf_images, tf_labels = {}, {}, {}
+        tf_bump_img_ids, tf_bump_images, tf_bump_labels = {}, {}, {}
+        tf_loss, tf_logits = {}, {}
+        tf_bump_loss, tf_bump_logits = {}, {}
+        tf_optimize, tf_mom_update_ops, tf_grads = {}, {}, {}
+        tf_bump_optimize, tf_bump_mom_update_ops, tf_bump_grads = {}, {}, {}
+        tf_mock_labels = tf.placeholder(shape=[batch_size,1],dtype=tf.float32)
+        tf_grads_and_vars = {}
 
-        tf_bump_img_ids, tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
-            all_bump_files, batch_size, shuffle=True,
-            training_data=True, use_opposite_label=True,inputs_for_sdae=False)
+        for direction in ['left', 'straight', 'right']:
+            tf_img_ids[direction], tf_images[direction], tf_labels[direction] = models_utils.build_input_pipeline(
+                dataset_filenames['train_dataset'][direction], batch_size, shuffle=True,
+                training_data=False, use_opposite_label=False, inputs_for_sdae=False)
 
-        tf_logits = logits(tf_images)
-        tf_loss = calculate_loss(tf_logits, tf_labels)
+            tf_bump_img_ids[direction], tf_bump_images[direction], tf_bump_labels[
+                direction] = models_utils.build_input_pipeline(
+                dataset_filenames['train_bump_dataset'][direction], batch_size, shuffle=True,
+                training_data=False, use_opposite_label=True, inputs_for_sdae=False)
 
-        tf_bump_logits = logits(tf_bump_images)
-        tf_bump_loss = calculate_loss(tf_bump_logits, tf_bump_labels)
+            tf_logits[direction] = logits(tf_images[direction], direction=direction)
+            tf_bump_logits[direction] = logits(tf_bump_images[direction], direction=direction)
 
-        tf_optimize, tf_grads_and_vars = cnn_optimizer.optimize_model_naive_no_momentum(tf_loss, noncol_global_step,tf.global_variables())
-        tf_bump_optimize, _ = cnn_optimizer.optimize_model_naive_no_momentum(tf_bump_loss, col_global_step, tf.global_variables())
+        tf_train_predictions = predictions_with_inputs(
+            tf_images[direction])
+        tf_train_bump_predictions = predictions_with_inputs(
+            tf_bump_images[direction])
 
-        tf_train_predictions = predictions_with_inputs(tf_images)
-        tf_train_bump_predictions = predictions_with_inputs(tf_bump_images)
+        for direction in ['left', 'straight', 'right']:
+
+            tf_loss[direction] = calculate_loss(tf_logits[direction], tf_mock_labels)
+            tf_bump_loss[direction] = calculate_loss(tf_bump_logits[direction], tf_mock_labels)
+
+            var_list = []
+            for v in tf.global_variables():
+                if direction + config.TF_SCOPE_DIVIDER in v.name and config.TF_MOMENTUM_STR not in v.name:
+                    print(v.name)
+                    var_list.append(v)
+
+            tf_optimize[direction],tf_grads_and_vars[direction] = cnn_optimizer.optimize_model_naive_no_momentum(tf_loss[direction], noncol_global_step,var_list=var_list
+                                                                 )
+            tf_bump_optimize[direction], _ = cnn_optimizer.optimize_model_naive_no_momentum(tf_bump_loss[direction], col_global_step,
+                                                              )
 
         tf_test_img_ids, tf_test_images,tf_test_labels = models_utils.build_input_pipeline(all_test_files,batch_size,shuffle=False,
                                                                           training_data=False, use_opposite_label=False, inputs_for_sdae=False)
@@ -245,28 +306,40 @@ if __name__ == '__main__':
             # Training with Non-Bump Data
             for step in range(dataset_sizes['train_dataset']//batch_size//config.FRACTION_OF_TRAINING_TO_USE):
 
-                l1, _, pred,train_labels = sess.run([tf_loss, tf_optimize, tf_train_predictions,tf_labels])
+                rand_direction = np.random.choice(['left','straight','right'])
+                temp = ['left', 'straight', 'right']
+                temp.remove(rand_direction)
+                new_rand_direction = np.random.choice(temp)
+                l1, _, pred,train_labels,grads_and_vars = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction], tf_train_predictions,tf_labels[rand_direction],tf_grads_and_vars[rand_direction]],
+                                                    feed_dict={tf_mock_labels:np.ones(shape=(batch_size,1),dtype=np.float32)})
+                l1, _ = sess.run(
+                    [tf_loss[new_rand_direction], tf_optimize[new_rand_direction]],
+                    feed_dict={tf_mock_labels: np.zeros(shape=(batch_size, 1), dtype=np.float32)})
+
                 avg_loss.append(l1)
                 avg_train_accuracy.append(models_utils.soft_accuracy(pred,train_labels,use_argmin=False, max_thresh=max_thresh, min_thresh=min_thresh))
+
 
                 if step < 2:
                     logger.debug('Predictions for Non-Collided data')
                     for pred,lbl in zip(pred,train_labels):
                         logger.debug('\t%s;%s',pred,lbl)
 
-            # Training with Bump Data
-            for step in range(dataset_sizes['train_bump_dataset'] // batch_size):
-                bump_l1,bump_logits, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
-                                                                                                 tf_bump_optimize,
+                # Training with Bump Data
+            '''for step in range(dataset_sizes['train_bump_dataset'] // batch_size):
+                bump_l1,bump_logits, _, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
+                                                                                                 tf_bump_optimize, tf_bump_mom_update_ops,
                                                                                                  tf_train_bump_predictions, tf_bump_labels])
 
+                #bump_l1, bump_pred, train_bump_labels = sess.run([tf_bump_loss,tf_train_bump_predictions,tf_bump_labels])
                 avg_bump_loss.append(bump_l1)
                 avg_bump_train_accuracy.append(models_utils.soft_accuracy(bump_pred,train_bump_labels,use_argmin=True, max_thresh=max_thresh, min_thresh=min_thresh))
 
                 if step<2:
                     logger.debug('Predictions for Collided data')
                     for pred,lbl in zip(bump_pred,train_bump_labels):
-                        logger.debug('\t%s;%s',pred,lbl)
+                        logger.debug('\t%s;%s',pred,lbl)'''
+            avg_bump_loss.append(0.0)
 
             if min_noncol_loss > np.mean(avg_loss):
                 min_noncol_loss = np.mean(avg_loss)
