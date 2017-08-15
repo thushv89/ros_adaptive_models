@@ -85,7 +85,7 @@ def build_tensorflw_variables_naive():
     global logger,sess,graph
 
     logger.info("Building Tensorflow Variables (Tensorflow)...")
-    with sess.as_default and graph.as_default():
+    with sess.as_default() and graph.as_default():
         for si,scope in enumerate(config.TF_ANG_SCOPES):
             with tf.variable_scope(scope) as sc:
 

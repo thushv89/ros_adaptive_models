@@ -3,6 +3,7 @@ import tensorflow as tf
 import config
 import logging
 import sys
+from math import ceil
 
 sess,graph,logger = None,None,None
 
@@ -45,6 +46,22 @@ def set_from_main(main_sess,main_graph, main_logger):
     graph = main_graph
     #logger = main_logger
 
+
+def get_fc_height_width(input_size, scope_list, strides):
+    fc_h = config.TF_INPUT_AFTER_RESIZE[0]
+    fc_w = config.TF_INPUT_AFTER_RESIZE[1]
+
+    for scope in scope_list:
+        if 'conv' in scope or 'pool' in scope:
+            h_stride = config.TF_ANG_STRIDES[scope][1]
+            w_stride = config.TF_ANG_STRIDES[scope][2]
+
+            fc_h = ceil(fc_h*1.0/h_stride)
+            fc_w = ceil(fc_w*1.0/w_stride)
+        elif 'fc' in scope:
+            break
+
+    return fc_h,fc_w
 
 def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae):
     '''
@@ -94,8 +111,16 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
             image = tf.image.random_brightness(image, 0.5, seed=13345432)
             image = tf.image.random_contrast(image, lower=0.1, upper=1.8, seed=2353252)
 
-        image = tf.image.crop_to_bounding_box(image,20,0,56,128)
-        image = tf.image.resize_images(image,[56,96])
+        if training_data:
+            # crop to a size a bit larger than the actual resize
+            image = tf.image.crop_to_bounding_box(image,20,0,56,128)
+            # get a random crop from the bit larger crop
+            image = tf.random_crop(image,config.TF_INPUT_AFTER_RESIZE,seed=tf.set_random_seed(2334543))
+        else:
+            # crop to a size a exact actual resize
+            image = tf.image.crop_to_bounding_box(image, 24, 0, 48, 128)
+
+        image = tf.image.resize_images(image,[config.TF_INPUT_AFTER_RESIZE[0],config.TF_INPUT_AFTER_RESIZE[1]])
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
 

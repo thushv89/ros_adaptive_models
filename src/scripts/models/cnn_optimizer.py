@@ -106,17 +106,15 @@ def optimize_model_naive(loss, global_step):
 
 def optimize_model_naive_no_momentum(loss, global_step,var_list=None):
     '''
-    Optimize a naive CNN model
+    Optimize a naive CNN model with the built-in Optimizer
     :param loss:
-    :param tf_labels:
     :param global_step:
-    :param use_masking:
-    :param collision:
     :return:
     '''
     learning_rate = tf.maximum(
         tf.train.exponential_decay(0.005, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
+
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     grads_and_vars = optimizer.compute_gradients(loss,var_list=var_list)
 
