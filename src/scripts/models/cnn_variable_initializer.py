@@ -95,7 +95,7 @@ def build_tensorflw_variables_naive():
                 try:
                     if 'pool' not in scope:
                         tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
-                                                  initializer=tf.truncated_normal_initializer(stddev=0.02,dtype=tf.float32))
+                                                  initializer=tf.contrib.layers.xavier_initializer())
                         tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
                                                initializer = tf.constant_initializer(0.001,dtype=tf.float32))
 
@@ -135,7 +135,7 @@ def build_tensorflw_variables_multiple():
                         try:
                             if 'pool' not in scope:
                                 tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_MULTIPLE[scope],
-                                                          initializer=tf.truncated_normal_initializer(stddev=0.02,dtype=tf.float32))
+                                                          initializer=tf.contrib.layers.xavier_initializer())
                                 tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_MULTIPLE[scope][-1],
                                                        initializer = tf.constant_initializer(0.001,dtype=tf.float32))
 
@@ -175,7 +175,7 @@ def build_tensorflw_variables_dual():
                         with tf.variable_scope(scope) as sc:
                             logger.info('\tCreating conv1 variables')
                             tf.get_variable(config.TF_WEIGHTS_STR, shape=config.TF_ANG_VAR_SHAPES_DETACHED[scope],
-                                            initializer=tf.truncated_normal_initializer(stddev=0.02, dtype=tf.float32))
+                                            initializer=tf.contrib.layers.xavier_initializer())
                             tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_DETACHED[scope][-1],
                                             initializer=tf.constant_initializer(0.001, dtype=tf.float32))
 
@@ -194,8 +194,7 @@ def build_tensorflw_variables_dual():
                                 with tf.variable_scope(scope) as sc:
                                     logger.info('\t\tCreating  %s variables',scope)
                                     w = tf.get_variable(config.TF_WEIGHTS_STR, shape=config.TF_VAR_SHAPES_DUAL_DETACHED_NONCOL[scope],
-                                                    initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                                dtype=tf.float32))
+                                                    initializer=tf.contrib.layers.xavier_initializer())
                                     tf.get_variable(config.TF_BIAS_STR, config.TF_VAR_SHAPES_DUAL_DETACHED_NONCOL[scope][-1],
                                                     initializer=tf.constant_initializer(0.001, dtype=tf.float32))
 
@@ -218,8 +217,7 @@ def build_tensorflw_variables_dual():
                                         with tf.variable_scope(di):
                                             w = tf.get_variable(config.TF_WEIGHTS_STR,
                                                             shape=config.TF_VAR_SHAPES_DUAL_DETACHED_NONCOL[scope],
-                                                            initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                                        dtype=tf.float32))
+                                                            initializer=tf.contrib.layers.xavier_initializer())
                                             tf.get_variable(config.TF_BIAS_STR,
                                                             config.TF_VAR_SHAPES_DUAL_DETACHED_NONCOL[scope][-1],
                                                             initializer=tf.constant_initializer(0.001,
@@ -244,8 +242,7 @@ def build_tensorflw_variables_dual():
                                 with tf.variable_scope(scope) as sc:
                                     w = tf.get_variable(config.TF_WEIGHTS_STR,
                                                     shape=config.TF_VAR_SHAPES_DUAL_DETACHED_COL[scope],
-                                                    initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                                dtype=tf.float32))
+                                                    initializer=tf.contrib.layers.xavier_initializer())
                                     tf.get_variable(config.TF_BIAS_STR,
                                                     config.TF_VAR_SHAPES_DUAL_DETACHED_COL[scope][-1],
                                                     initializer=tf.constant_initializer(0.001, dtype=tf.float32))
@@ -269,8 +266,7 @@ def build_tensorflw_variables_dual():
                                         with tf.variable_scope(di):
                                             w= tf.get_variable(config.TF_WEIGHTS_STR,
                                                             shape=config.TF_VAR_SHAPES_DUAL_DETACHED_COL[scope],
-                                                            initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                                        dtype=tf.float32))
+                                                            initializer=tf.contrib.layers.xavier_initializer())
                                             tf.get_variable(config.TF_BIAS_STR,
                                                             config.TF_VAR_SHAPES_DUAL_DETACHED_COL[scope][-1],
                                                             initializer=tf.constant_initializer(0.001,
@@ -315,8 +311,7 @@ def build_tensorflw_variables_dual_naive():
                             with tf.variable_scope(scope) as sc:
                                 logger.info('\t\tCreating  %s variables',scope)
                                 w = tf.get_variable(config.TF_WEIGHTS_STR, shape=config.TF_VAR_SHAPES_DUAL_NAIVE_NONCOL[scope],
-                                                initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                            dtype=tf.float32))
+                                                initializer=tf.contrib.layers.xavier_initializer())
                                 tf.get_variable(config.TF_BIAS_STR, config.TF_VAR_SHAPES_DUAL_NAIVE_NONCOL[scope][-1],
                                                 initializer=tf.constant_initializer(0.001, dtype=tf.float32))
 
@@ -338,8 +333,7 @@ def build_tensorflw_variables_dual_naive():
 
                                 w = tf.get_variable(config.TF_WEIGHTS_STR,
                                                 shape=config.TF_VAR_SHAPES_DUAL_NAIVE_NONCOL[scope],
-                                                initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                            dtype=tf.float32))
+                                                initializer=tf.contrib.layers.xavier_initializer())
                                 tf.get_variable(config.TF_BIAS_STR,
                                                 config.TF_VAR_SHAPES_DUAL_NAIVE_NONCOL[scope][-1],
                                                 initializer=tf.constant_initializer(0.001,
@@ -385,11 +379,9 @@ def build_tensorflw_variables_dual_naive():
 
                             with tf.variable_scope(scope) as sc:
 
-
                                 w= tf.get_variable(config.TF_WEIGHTS_STR,
                                                 shape=config.TF_VAR_SHAPES_DUAL_NAIVE_COL[scope],
-                                                initializer=tf.truncated_normal_initializer(stddev=0.02,
-                                                                                            dtype=tf.float32))
+                                                initializer=tf.contrib.layers.xavier_initializer())
                                 tf.get_variable(config.TF_BIAS_STR,
                                                 config.TF_VAR_SHAPES_DUAL_NAIVE_COL[scope][-1],
                                                 initializer=tf.constant_initializer(0.001,

@@ -37,8 +37,8 @@ ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the o
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
 
-FC1_WEIGHTS = 96
-FC1_WEIGHTS_DETACHED = 32
+FC1_WEIGHTS = 256
+FC1_WEIGHTS_DETACHED = 96
 
 BATCH_SIZE = 10
 
@@ -47,8 +47,8 @@ USE_CONV_STRIDE_WITHOUT_POOLING = True
 ACTIVATION = 'relu'
 
 if USE_CONV_STRIDE_WITHOUT_POOLING:
-    TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3','fc1', 'out']
-    TF_ANG_STRIDES = {'conv1': [1, 1, 1, 1], 'conv2': [1, 1, 2, 1], 'conv3': [1, 2, 2, 1], 'conv4': [1, 2, 2, 1],
+    TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3','conv4','fc1', 'out']
+    TF_ANG_STRIDES = {'conv1': [1, 1, 1, 1], 'conv2': [1, 1, 2, 1], 'conv3': [1, 2, 2, 1], 'conv4': [1, 1, 1, 1],
                       'conv5': [1, 1, 1, 1]}
 else:
     TF_ANG_SCOPES = ['conv1', 'pool1','conv2', 'pool2','conv3', 'pool3','conv4','fc1', 'out']
@@ -60,7 +60,7 @@ fc_h, fc_w = models_utils.get_fc_height_width(TF_INPUT_AFTER_RESIZE, TF_ANG_SCOP
 if USE_CONV_STRIDE_WITHOUT_POOLING:
 
     TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 8, 3, 16], 'conv2': [4, 8, 16, 32],'conv3': [5,5,32,48],'conv4':[3,3,48,64],'conv5':[3,3,64,64],
-                         'fc1': [fc_h * fc_w * 48, FC1_WEIGHTS],
+                         'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
                          'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
     TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [4, 8, 3, 16], 'conv2': [4, 8, 16, 32],'conv3': [5,5,32,48],'conv4':[3,3,48,64],
@@ -86,9 +86,9 @@ if USE_CONV_STRIDE_WITHOUT_POOLING:
                                        'out': [FC1_WEIGHTS // 2, 3]}
 
 else:
-    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 8, 3, 32], 'pool1':[1,4,8,1], 'conv2': [5, 5, 32, 48], 'pool2':[1,3,3,1],
-                               'conv3': [3, 3, 48, 64],'pool3':[1,3,3,1], 'conv4': [3,3,64,64],
-                               'fc1': [fc_h * fc_w * 48, FC1_WEIGHTS],
+    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 8, 3, 32], 'pool1':[1,2,4,1], 'conv2': [5, 5, 32, 48], 'pool2':[1,2,2,1],
+                               'conv3': [3, 3, 48, 64],'pool3':[1,2,2,1], 'conv4': [3,3,64,64],
+                               'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
                                'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
     TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [4, 8, 3, 32], 'pool1':[1,4,8,1], 'conv2': [5, 5, 32, 48], 'pool2':[1,3,3,1],

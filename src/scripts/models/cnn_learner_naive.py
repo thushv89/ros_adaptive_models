@@ -13,11 +13,11 @@ import cnn_variable_initializer
 import cnn_optimizer
 import cnn_model_visualizer
 
-logging_level = logging.DEBUG
+logging_level = logging.WARN
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 logger = logging.getLogger('Logger')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging_level)
 console = logging.StreamHandler(sys.stdout)
 console.setFormatter(logging.Formatter(logging_format))
 console.setLevel(logging_level)
@@ -36,6 +36,18 @@ activation = config.ACTIVATION
 max_thresh = 0.05
 min_thresh = -0.05
 
+kernel_size_dict = config.TF_ANG_VAR_SHAPES_NAIVE
+stride_dict = config.TF_ANG_STRIDES
+scope_list = config.TF_ANG_SCOPES
+
+
+def set_scope_kernel_stride_dicts(sc_list, k_dict, s_dict):
+    global kernel_size_dict,stride_dict,scope_list
+    scope_list = sc_list
+    kernel_size_dict = k_dict
+    stride_dict = s_dict
+
+
 def logits(tf_inputs):
     '''
     Inferencing the model. The input (tf_inputs) is propagated through convolutions poolings
@@ -46,20 +58,20 @@ def logits(tf_inputs):
     global logger
     logger.info('Defining inference ops ...')
     with tf.name_scope('infer'):
-        for si, scope in enumerate(config.TF_ANG_SCOPES):
+        for si, scope in enumerate(scope_list):
             with tf.variable_scope(scope,reuse=True) as sc:
 
                 if 'conv' in scope:
                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
                     logger.info('\t\tConvolution with %s activation for %s',activation,scope)
                     if si == 0:
-                        h = models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='hidden')
+                        h = models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=stride_dict[scope],padding='SAME')+bias,activation,name='hidden')
                     else:
-                        h = models_utils.activate(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias, activation,
+                        h = models_utils.activate(tf.nn.conv2d(h, weight, strides=stride_dict[scope], padding='SAME') + bias, activation,
                                        name='hidden')
                 elif 'pool' in scope:
                     logger.info('\t\tMax pooling for %s', scope)
-                    h = tf.nn.max_pool(h,config.TF_ANG_VAR_SHAPES_NAIVE[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
+                    h = tf.nn.max_pool(h,kernel_size_dict[scope],stride_dict[scope],padding='SAME',name='pool_hidden')
 
                 else:
                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
@@ -92,21 +104,21 @@ def logits_with_batchnorm(tf_inputs,is_training):
     global logger
     logger.info('Defining inference ops ...')
     with tf.name_scope('infer'):
-        for si, scope in enumerate(config.TF_ANG_SCOPES):
+        for si, scope in enumerate(scope_list):
             with tf.variable_scope(scope,reuse=True) as sc:
 
                 if 'conv' in scope:
                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
                     logger.info('\t\tConvolution with %s activation for %s',activation,scope)
                     if si == 0:
-                        h = tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias
+                        h = tf.nn.conv2d(tf_inputs,weight,strides=stride_dict[scope],padding='SAME')+bias
                         with tf.variable_scope('bn'):
                             beta = tf.get_variable("beta", h.get_shape().as_list()[1:], initializer=tf.constant_initializer(0.0))
                             gamma = tf.get_variable("gamma", h.get_shape().as_list()[1:], initializer=tf.constant_initializer(0.0))
                         h = tf.contrib.layers.batch_norm(h, center=True, scale=True, is_training=is_training, scope='bn')
                         h = models_utils.activate(h,activation,name='hidden')
                     else:
-                        h = tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias
+                        h = tf.nn.conv2d(h, weight, strides=stride_dict[scope], padding='SAME') + bias
                         with tf.variable_scope('bn'):
                             beta = tf.get_variable("beta", h.get_shape().as_list()[1:], initializer=tf.constant_initializer(0.0))
                             gamma = tf.get_variable("gamma", h.get_shape().as_list()[1:], initializer=tf.constant_initializer(0.0))
@@ -115,7 +127,7 @@ def logits_with_batchnorm(tf_inputs,is_training):
                         h = models_utils.activate(h, activation, name='hidden')
                 elif 'pool' in scope:
                     logger.info('\t\tMax pooling for %s', scope)
-                    h = tf.nn.max_pool(h,config.TF_ANG_VAR_SHAPES_NAIVE[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
+                    h = tf.nn.max_pool(h,kernel_size_dict[scope],stride_dict[scope],padding='SAME',name='pool_hidden')
 
                 else:
                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
@@ -465,7 +477,7 @@ if __name__ == '__main__':
 
 
         logger.info('Saving CNN Model')
-        cnn_model_visualizer.save_cnn_hyperparameters(IMG_DIR,config.TF_ANG_VAR_SHAPES_NAIVE,config.TF_ANG_STRIDES, 'hyperparams_%d.pickle'%epoch)
+        cnn_model_visualizer.save_cnn_hyperparameters(IMG_DIR,kernel_size_dict,stride_dict, 'hyperparams_%d.pickle'%epoch)
         cnn_model_visualizer.save_cnn_weights_naive(IMG_DIR, sess, 'cnn_model_%d.ckpt'%epoch)
 
         coord.request_stop()

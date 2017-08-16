@@ -53,8 +53,8 @@ def get_fc_height_width(input_size, scope_list, strides):
 
     for scope in scope_list:
         if 'conv' in scope or 'pool' in scope:
-            h_stride = config.TF_ANG_STRIDES[scope][1]
-            w_stride = config.TF_ANG_STRIDES[scope][2]
+            h_stride = strides[scope][1]
+            w_stride = strides[scope][2]
 
             fc_h = ceil(fc_h*1.0/h_stride)
             fc_w = ceil(fc_w*1.0/w_stride)
@@ -62,6 +62,7 @@ def get_fc_height_width(input_size, scope_list, strides):
             break
 
     return fc_h,fc_w
+
 
 def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae):
     '''

@@ -110,7 +110,7 @@ def calculate_loss(tf_logits,tf_labels):
     tf_label_weights = tf.reduce_mean(tf_labels, axis=[0])
 
     mask_predictions = True
-    random_masking = False
+    random_masking = True
     if mask_predictions and not random_masking:
         masked_preds = tf.nn.tanh(tf_logits) * tf.cast(tf.not_equal(tf_labels,0.0),dtype=tf.float32)
         loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *(1.0-tf.abs(tf_label_weights)),axis=[1]),axis=[0])
