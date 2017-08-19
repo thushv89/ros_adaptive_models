@@ -114,14 +114,16 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
 
         if training_data:
             # crop to a size a bit larger than the actual resize
-            image = tf.image.crop_to_bounding_box(image,20,0,56,128)
+            image = tf.image.crop_to_bounding_box(image,10,0,86,128)
             # get a random crop from the bit larger crop
             image = tf.random_crop(image,config.TF_INPUT_AFTER_RESIZE,seed=tf.set_random_seed(2334543))
         else:
             # crop to a size a exact actual resize
-            image = tf.image.crop_to_bounding_box(image, 24, 0, 48, 128)
+            image = tf.image.crop_to_bounding_box(image, 16, 0, 64, 128)
+            print(image.get_shape().as_list())
+        # not required anymore
+        #image = tf.image.resize_images(image,[config.TF_INPUT_AFTER_RESIZE[0],config.TF_INPUT_AFTER_RESIZE[1]])
 
-        image = tf.image.resize_images(image,[config.TF_INPUT_AFTER_RESIZE[0],config.TF_INPUT_AFTER_RESIZE[1]])
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
 

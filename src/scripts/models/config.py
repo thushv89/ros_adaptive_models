@@ -17,7 +17,7 @@ FEAT_IMG_ID = 'id'
 # NEW INPUT SIZE  (RESIZED) (96,56)
 USE_GRAYSCALE = False
 TF_INPUT_SIZE = [96,128,3] # Original
-TF_INPUT_AFTER_RESIZE = [48,96,3]
+TF_INPUT_AFTER_RESIZE = [64,128,3]
 
 if not USE_GRAYSCALE:
     TF_RESIZE_TO = [56, 128, 3]
@@ -37,23 +37,23 @@ ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the o
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
 
-FC1_WEIGHTS = 256
+FC1_WEIGHTS = 64
 FC1_WEIGHTS_DETACHED = 96
 
 BATCH_SIZE = 10
 
-USE_CONV_STRIDE_WITHOUT_POOLING = True
+USE_CONV_STRIDE_WITHOUT_POOLING = False
 
 ACTIVATION = 'relu'
 
 if USE_CONV_STRIDE_WITHOUT_POOLING:
-    TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3','conv4','fc1', 'out']
+    TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3','conv4','conv5','fc1', 'out']
     TF_ANG_STRIDES = {'conv1': [1, 1, 1, 1], 'conv2': [1, 1, 2, 1], 'conv3': [1, 2, 2, 1], 'conv4': [1, 1, 1, 1],
                       'conv5': [1, 1, 1, 1]}
 else:
     TF_ANG_SCOPES = ['conv1', 'pool1','conv2', 'pool2','conv3', 'pool3','conv4','fc1', 'out']
     TF_ANG_STRIDES = {'conv1': [1, 1, 1, 1], 'conv2': [1, 1, 1, 1], 'conv3': [1, 1, 1, 1],'conv4':[1,1,1,1],
-                      'pool1': [1, 2, 4, 1], 'pool2': [1, 2, 2, 1], 'pool3': [1, 2, 2, 1]}
+                      'pool1': [1, 1, 2, 1], 'pool2': [1, 2, 2, 1], 'pool3': [1, 2, 4, 1]}
 
 fc_h, fc_w = models_utils.get_fc_height_width(TF_INPUT_AFTER_RESIZE, TF_ANG_SCOPES, TF_ANG_STRIDES)
 
@@ -86,8 +86,9 @@ if USE_CONV_STRIDE_WITHOUT_POOLING:
                                        'out': [FC1_WEIGHTS // 2, 3]}
 
 else:
-    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 8, 3, 32], 'pool1':[1,2,4,1], 'conv2': [5, 5, 32, 48], 'pool2':[1,2,2,1],
-                               'conv3': [3, 3, 48, 64],'pool3':[1,2,2,1], 'conv4': [3,3,64,64],
+    # Best performing model from model search
+    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 8, 3, 32], 'pool1':[1,6,6,1], 'conv2': [6, 6, 32, 64], 'pool2':[1,2,4,1],
+                               'conv3': [6, 6, 64, 64],'pool3':[1,6,6,1], 'conv4': [6,6,64,64], 'conv5':[6,6,64,64],
                                'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
                                'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
