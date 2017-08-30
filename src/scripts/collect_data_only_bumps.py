@@ -145,9 +145,15 @@ def callback_laser(msg):
                     np.min(filtered_ranges[LASER_RANGE_RIGHT[0]:LASER_RANGE_RIGHT[1]]) < bump_thresh_0_2):
 
         logger.debug("setting Obstacle to True")
+
+        # If there are any labels that arent 1, we make all of them to that direction
+        # e.g. labe sequence 1,1,1,2,2 will turn to be 2,2,2,2,2
+        temp_label_seq = []
         for buf_i in range(len(utils.IMG_BUFFER)-utils.BUMP_LABEL_LENGTH,len(utils.IMG_BUFFER)):
             utils.BUMP_IMG_BUFFER.append(utils.IMG_BUFFER[buf_i])
-            utils.BUMP_LABEL_BUFFER.append(utils.LABEL_BUFFER[buf_i])
+            temp_label_seq.append(utils.LABEL_BUFFER[buf_i])
+
+        utils.BUMP_LABEL_BUFFER.extend(correct_labels(temp_label_seq))
 
         utils.IMG_BUFFER = []
         utils.LABEL_BUFFER = []
@@ -160,6 +166,17 @@ def callback_laser(msg):
         time.sleep(utils.REVERSE_TIME_OUT)
         logger.debug('Releasing the reverse lock ...')
         reversing = False
+
+
+def correct_labels(label_seq):
+
+    label_to_assign = 1
+    for lbl in label_seq[len(label_seq)//2:]:
+        if lbl != 1:
+            print('Turning all labels to %d',lbl)
+            label_to_assign = lbl
+            break
+    return [label_to_assign for _ in range(len(label_seq))]
 
 
 def callback_odom(msg):

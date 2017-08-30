@@ -37,13 +37,14 @@ def activate(x,activation_type,name='activation'):
         return tf.nn.relu(x,name=name)
     elif activation_type=='lrelu':
         return lrelu(x,name=name)
+    elif activation_type=='sigmoid':
+        return tf.nn.sigmoid(x,name=name)
     else:
         raise NotImplementedError
 
-def set_from_main(main_sess,main_graph, main_logger):
-    global sess,graph,logger
+def set_from_main(main_sess, main_logger):
+    global sess,logger
     sess = main_sess
-    graph = main_graph
     #logger = main_logger
 
 
@@ -74,7 +75,7 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
     :param use_opposite_label: This is for bump data (in which we invert labels e.g. if label is 001 we return 110
     :return:
     '''
-    global sess, graph
+    global sess
     global logger
     logger.info('Received filenames: %s', filenames)
     with tf.name_scope('sim_preprocess'):
@@ -195,6 +196,76 @@ def get_id_vector_for_correctly_predicted_samples(img_ids, pred, ohe_labels, dir
     return list(img_ids[correct_indices_to_consider].flatten())
 
 
+def get_id_vector_for_predicted_samples_best(img_ids, pred, ohe_labels, direction_index, enable_soft_accuracy, use_argmin, max_thresh, min_thresh):
+    '''
+    Picks the predicted images that has that the output for particular direction above a threshold and
+     all the other values below a threshold
+    :param img_ids:
+    :param pred:
+    :param ohe_labels:
+    :param direction_index:
+    :param enable_soft_accuracy:
+    :param use_argmin:
+    :return:
+    '''
+
+    if not enable_soft_accuracy:
+        if not use_argmin:
+            indices_to_consider = np.where(np.argmax(pred,axis=1)==direction_index)[0]
+        else:
+            indices_to_consider = np.where(np.argmin(pred,axis=1)==direction_index)[0]
+
+        if indices_to_consider.size == 0:
+            return []
+    else:
+        if not use_argmin:
+            indices_to_consider = np.where(np.argmax(pred,axis=1)==direction_index)[0]
+            pred_indices_above_threshold = list(np.where(pred[np.arange(pred.shape[0]),np.ones([pred.shape[0]],dtype=np.int32)*direction_index]>0.01)[0])
+
+            # indices that have output value below threshold for directions except the direction_index
+            below_threshold_indices = []
+            for di in range(3):
+                if di==direction_index:
+                    continue
+                else:
+                    list_indices = list(np.where(
+                        pred[np.arange(pred.shape[0]), np.ones([pred.shape[0]], dtype=np.int32) * di] < min_thresh)[0])
+                    if len(below_threshold_indices)==0:
+                        below_threshold_indices = list_indices
+                    else:
+                        below_threshold_indices = np.intersect1d(below_threshold_indices,list_indices)
+
+            indices_to_consider = np.union1d(indices_to_consider,pred_indices_above_threshold)
+            indices_to_consider = np.intersect1d(indices_to_consider,below_threshold_indices)
+
+        else:
+            indices_to_consider = np.where(np.argmin(pred,axis=1)==direction_index)[0]
+            pred_indices_above_threshold = np.where(pred[np.arange(pred.shape[0]),np.ones([pred.shape[0]],dtype=np.int32)*direction_index]<-0.01)[0]
+
+            # indices that have output value above threshold for directions except the direction_index
+            above_threshold_indices = []
+            for di in range(3):
+                if di == direction_index:
+                    continue
+                else:
+                    list_indices = list(np.where(
+                        pred[np.arange(pred.shape[0]), np.ones([pred.shape[0]], dtype=np.int32) * di] > max_thresh)[0])
+                    if len(above_threshold_indices) == 0:
+                        above_threshold_indices = list_indices
+                    else:
+                        above_threshold_indices = np.intersect1d(above_threshold_indices, list_indices)
+
+            indices_to_consider = np.union1d(indices_to_consider,pred_indices_above_threshold)
+            indices_to_consider = np.intersect1d(indices_to_consider, above_threshold_indices)
+
+    if indices_to_consider.size > 0:
+        print(indices_to_consider)
+        return list(img_ids[indices_to_consider].flatten())
+    else:
+        return []
+
+
+
 def get_id_vector_for_predicted_samples(img_ids, pred, ohe_labels, direction_index, enable_soft_accuracy, use_argmin):
 
     if not enable_soft_accuracy:
@@ -202,6 +273,9 @@ def get_id_vector_for_predicted_samples(img_ids, pred, ohe_labels, direction_ind
             indices_to_consider = np.where(np.argmax(pred,axis=1)==direction_index)[0]
         else:
             indices_to_consider = np.where(np.argmin(pred,axis=1)==direction_index)[0]
+
+        if indices_to_consider.size == 0:
+            return []
 
     else:
         if not use_argmin:
@@ -213,7 +287,10 @@ def get_id_vector_for_predicted_samples(img_ids, pred, ohe_labels, direction_ind
             pred_indices_above_threshold = np.where(pred[np.arange(pred.shape[0]),np.ones([pred.shape[0]],dtype=np.int32)*direction_index]<-0.01)[0]
             indices_to_consider = np.union1d(indices_to_consider,pred_indices_above_threshold)
 
-    return list(img_ids[indices_to_consider].flatten())
+    if indices_to_consider.size > 0:
+        return list(img_ids[indices_to_consider].flatten())
+    else:
+        return []
 
 
 def accuracy(pred,ohe_labels,use_argmin):

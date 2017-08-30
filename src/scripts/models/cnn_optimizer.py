@@ -63,7 +63,7 @@ def optimize_model_detached(loss, global_step, direction):
     return optimize, mom_update_ops, learning_rate
 
 
-def optimize_model_naive(loss, global_step):
+def optimize_model_naive(loss, global_step, collision):
     '''
     Optimize a naive CNN model
     :param loss:
@@ -73,11 +73,11 @@ def optimize_model_naive(loss, global_step):
     :param collision:
     :return:
     '''
-    momentum = 0.0
+    momentum = 0.9
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.01, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+        tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
@@ -90,12 +90,20 @@ def optimize_model_naive(loss, global_step):
             [(g_w,w),(g_b,b)] = optimizer.compute_gradients(loss,[w,b])
 
             with tf.variable_scope(config.TF_WEIGHTS_STR,reuse=True):
-                w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                if not collision:
+                    w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                else:
+                    w_vel = tf.get_variable(config.TF_COL_MOMENTUM_STR)
+
                 mom_update_ops.append(tf.assign(w_vel, momentum * w_vel + g_w))
                 grads_and_vars.append((w_vel * learning_rate, w))
             with tf.variable_scope(config.TF_BIAS_STR,reuse=True):
                 # TODO: MASKING FOR BIAS
-                b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                if not collision:
+                    b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+                else:
+                    b_vel = tf.get_variable(config.TF_COL_MOMENTUM_STR)
+
                 mom_update_ops.append(tf.assign(b_vel, momentum*b_vel + g_b))
                 grads_and_vars.append((b_vel * learning_rate, b))
 
@@ -104,7 +112,7 @@ def optimize_model_naive(loss, global_step):
     return optimize,mom_update_ops,grads_and_vars
 
 
-def optimize_model_naive_no_momentum(loss, global_step,var_list=None):
+def optimize_model_naive_no_momentum(loss, global_step, varlist=None):
     '''
     Optimize a naive CNN model with the built-in Optimizer
     :param loss:
@@ -112,13 +120,14 @@ def optimize_model_naive_no_momentum(loss, global_step,var_list=None):
     :return:
     '''
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.005, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+        tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
-    grads_and_vars = optimizer.compute_gradients(loss,var_list=var_list)
 
-    optimize = optimizer.minimize(loss,var_list=var_list)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    grads_and_vars = optimizer.compute_gradients(loss,var_list=varlist)
+
+    optimize = optimizer.minimize(loss,var_list=varlist)
     return optimize,grads_and_vars
 
 
@@ -138,7 +147,7 @@ def optimize_model_dual(loss, global_step, direction,collision):
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.01, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+        tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
@@ -316,5 +325,5 @@ def optimize_model_dual_naive_builtin(loss, global_step,var_list):
         tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-5)
 
-    optimize = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(loss, var_list=var_list)
+    optimize = tf.train.MomentumOptimizer(learning_rate=learning_rate,momentum=0.9).minimize(loss, var_list=var_list)
     return optimize, mom_update_ops, learning_rate, grads_and_vars

@@ -29,7 +29,8 @@ TF_COL_STR = 'collision'
 
 TF_WEIGHTS_STR = 'weights'
 TF_BIAS_STR = 'bias'
-TF_MOMENTUM_STR = 'Momentum'
+TF_MOMENTUM_STR = 'CustomMomentum'
+TF_COL_MOMENTUM_STR = 'CustomBumpMomentum'
 TF_SCOPE_DIVIDER = '/'
 TF_NUM_CLASSES = 3
 ENABLE_MASKING = True # drop out logits of zero elements on the one-hot vectors so that they are not optimized for that step
@@ -37,14 +38,21 @@ ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the o
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
 
-FC1_WEIGHTS = 64
+FC1_WEIGHTS = 256
 FC1_WEIGHTS_DETACHED = 96
 
-BATCH_SIZE = 10
+BATCH_SIZE = 50
+USE_DROPOUT = True
+IN_DROPOUT = 0.1
+LAYER_DROPOUT = 0.25
 
 USE_CONV_STRIDE_WITHOUT_POOLING = False
 
-ACTIVATION = 'relu'
+ACTIVATION = 'lrelu'
+OUTPUT_ACTIVATION = 'sigmoid'
+
+FACTOR_OF_TRAINING_TO_USE = 2
+
 
 if USE_CONV_STRIDE_WITHOUT_POOLING:
     TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3','conv4','conv5','fc1', 'out']
@@ -92,31 +100,27 @@ else:
                                'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
                                'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
+    TF_ANG_VAR_SHAPES_MULTIPLE = {'conv1': [4, 8, 3, 12], 'pool1': [1, 6, 6, 1], 'conv2': [6, 6, 12, 24],
+                               'pool2': [1, 2, 4, 1],
+                               'conv3': [6, 6, 24, 24], 'pool3': [1, 6, 6, 1], 'conv4': [6, 6, 24, 24],
+                               'conv5': [6, 6, 24, 24],
+                               'fc1': [fc_h * fc_w * 24, FC1_WEIGHTS//3],
+                               'out': [FC1_WEIGHTS//3, 1]}
+
     TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [4, 8, 3, 32], 'pool1':[1,4,8,1], 'conv2': [5, 5, 32, 48], 'pool2':[1,3,3,1],
                                'conv3': [3, 3, 48, 64],'pool3':[1,3,3,1],'conv4': [3,3,64,64],
                                'fc1': [fc_h * fc_w * 48, FC1_WEIGHTS_DETACHED],
                                'out': [FC1_WEIGHTS_DETACHED, 1]}
 
-    TF_VAR_SHAPES_DUAL_DETACHED_NONCOL = {'conv1': [4, 8, 3, 32], 'pool1':[1,3,3,1], 'conv2': [3, 6, 32, 48], 'pool2':[1,3,3,1],
-                               'conv3': [3, 6, 48, 64],'pool3':[1,3,3,1],
-                                  'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
-                                  'out': [FC1_WEIGHTS, 1]}
-
-    TF_VAR_SHAPES_DUAL_DETACHED_COL = {'conv1': [4, 8, 3, 32],'pool1':[1,3,3,1], 'conv2': [3, 6, 32, 24], 'pool2':[1,3,3,1],
-                               'conv3': [3, 6, 24, 32],'pool3':[1,3,3,1],
-                                  'fc1': [fc_h * fc_w * 32, FC1_WEIGHTS//2],
-                                  'out': [FC1_WEIGHTS//2, 1]}
-
-    TF_VAR_SHAPES_DUAL_NAIVE_NONCOL = {'conv1': [4, 8, 3, 32], 'pool1': [1, 3, 3, 1], 'conv2': [3, 6, 32, 48],
-                                          'pool2': [1, 3, 3, 1],
-                                          'conv3': [3, 6, 48, 64], 'pool3': [1, 3, 3, 1],
+    TF_VAR_SHAPES_DUAL_NAIVE_NONCOL = {'conv1': [4, 8, 3, 16], 'pool1': [1, 6, 6, 1], 'conv2': [6, 6, 32, 48],
+                                          'pool2': [1, 2, 4, 1],
+                                          'conv3': [6, 6, 64, 48], 'pool3': [1, 3, 3, 1],'conv4':[6,6,64,48],'conv5':[6,6,64,48],
                                           'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
                                           'out': [FC1_WEIGHTS, 3]}
 
-    TF_VAR_SHAPES_DUAL_NAIVE_COL = {'conv1': [4, 8, 3, 32], 'pool1': [1, 3, 3, 1], 'conv2': [3, 6, 32, 24], 'pool2': [1, 3, 3, 1],
-                                       'conv3': [3, 6, 24, 32], 'pool3': [1, 3, 3, 1],
-                                       'fc1': [fc_h * fc_w * 32, FC1_WEIGHTS // 2],
-                                       'out': [FC1_WEIGHTS // 2, 3]}
+    TF_VAR_SHAPES_DUAL_NAIVE_COL = {'conv1': [4, 8, 3, 16], 'pool1': [1, 6, 6, 1], 'conv2': [6, 6, 32, 16], 'pool2': [1, 3, 3, 1],
+                                       'conv3': [6, 6, 64, 16], 'pool3': [1, 6, 6, 1], 'conv4':[6,6,64,16], 'conv5':[6,6,64,16]
+                                       }
 
 TF_FIRST_FC_ID = 'fc1'
 
@@ -125,7 +129,7 @@ TF_SDAE_ANG_VAR_SHAPES = {'fc1':[TF_RESIZE_TO[0]*TF_RESIZE_TO[1]*TF_RESIZE_TO[2]
 
 OPTIMIZE_HYBRID_LOSS = False
 
-FRACTION_OF_TRAINING_TO_USE = 1
+
 
 ACTIVATION_MAP_DIR = 'activation_maps'
 WEIGHT_SAVE_DIR = 'model_weights'

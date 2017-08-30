@@ -30,10 +30,10 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'tanh'
+activation = 'lrelu'
 
-max_thresh = 0.51
-min_thresh = 0.49
+max_thresh = 0.05
+min_thresh = -0.05
 
 def logits(tf_inputs,direction):
     '''
@@ -105,8 +105,8 @@ def calculate_loss(tf_logits, tf_labels):
 
     tf_out = tf_logits
 
-    #loss = tf.reduce_mean(tf.reduce_sum(((tf.nn.softmax(tf_out) - tf_labels)**2)*tf_label_weights,axis=[1]))
-    loss = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_logits,labels=tf_labels),axis=[1]))
+    loss = tf.reduce_mean(tf.reduce_sum(((tf.nn.tanh(tf_out) - tf_labels)**2),axis=[1]),axis=[0])
+    #loss = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=tf_logits,labels=tf_labels),axis=[1]))
     return loss
 
 
@@ -216,7 +216,7 @@ if __name__ == '__main__':
     accuracy_logger.info('#Epoch;Accuracy;Non-collision Accuracy(Soft);Collision Accuracy;' +
                          'Collision Accuracy (Soft);Preci-NC-L,Preci-NC-S,Preci-NC-R;Rec-NC-L,Rec-NC-S,Rec-NC-R')
 
-    batch_size = 10
+    batch_size = config.BATCH_SIZE
 
     graph = tf.Graph()
     configp = tf.ConfigProto(allow_soft_placement=True,log_device_placement=False)
@@ -312,34 +312,20 @@ if __name__ == '__main__':
                 new_rand_direction = np.random.choice(temp)
                 l1, _, pred,train_labels,grads_and_vars = sess.run([tf_loss[rand_direction], tf_optimize[rand_direction], tf_train_predictions,tf_labels[rand_direction],tf_grads_and_vars[rand_direction]],
                                                     feed_dict={tf_mock_labels:np.ones(shape=(batch_size,1),dtype=np.float32)})
-                l1, _ = sess.run(
+                bump_l1, _ = sess.run(
                     [tf_loss[new_rand_direction], tf_optimize[new_rand_direction]],
-                    feed_dict={tf_mock_labels: np.zeros(shape=(batch_size, 1), dtype=np.float32)})
+                    feed_dict={tf_mock_labels: np.ones(shape=(batch_size, 1), dtype=np.float32)*-1.0})
 
                 avg_loss.append(l1)
                 avg_train_accuracy.append(models_utils.soft_accuracy(pred,train_labels,use_argmin=False, max_thresh=max_thresh, min_thresh=min_thresh))
-
 
                 if step < 2:
                     logger.debug('Predictions for Non-Collided data')
                     for pred,lbl in zip(pred,train_labels):
                         logger.debug('\t%s;%s',pred,lbl)
 
-                # Training with Bump Data
-            '''for step in range(dataset_sizes['train_bump_dataset'] // batch_size):
-                bump_l1,bump_logits, _, _, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
-                                                                                                 tf_bump_optimize, tf_bump_mom_update_ops,
-                                                                                                 tf_train_bump_predictions, tf_bump_labels])
 
-                #bump_l1, bump_pred, train_bump_labels = sess.run([tf_bump_loss,tf_train_bump_predictions,tf_bump_labels])
                 avg_bump_loss.append(bump_l1)
-                avg_bump_train_accuracy.append(models_utils.soft_accuracy(bump_pred,train_bump_labels,use_argmin=True, max_thresh=max_thresh, min_thresh=min_thresh))
-
-                if step<2:
-                    logger.debug('Predictions for Collided data')
-                    for pred,lbl in zip(bump_pred,train_bump_labels):
-                        logger.debug('\t%s;%s',pred,lbl)'''
-            avg_bump_loss.append(0.0)
 
             if min_noncol_loss > np.mean(avg_loss):
                 min_noncol_loss = np.mean(avg_loss)

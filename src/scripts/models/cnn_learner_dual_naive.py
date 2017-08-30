@@ -28,12 +28,14 @@ graph = None
 #configp = tf.ConfigProto(allow_soft_placement=True)
 sess = None
 
-activation = 'lrelu'
+activation = config.ACTIVATION
+out_activation = config.OUT_ACTIVATION
 
-max_thresh = 0.05
-min_thresh = -0.05
+max_thresh = 0.25
+min_thresh = -0.001
 
-def logits_until_top(tf_inputs, collision):
+
+def logits(tf_inputs):
     '''
     Logit inference for dual network
     :param tf_inputs:
@@ -47,117 +49,114 @@ def logits_until_top(tf_inputs, collision):
         for si, scope in enumerate(config.TF_ANG_SCOPES):
 
             if 'conv' in scope:
-                if scope=='conv1':
-                    if not collision:
-                        with tf.variable_scope(config.TF_NONCOL_STR, reuse=True):
-                            with tf.variable_scope(scope, reuse=True) as sc:
-                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
-                                logger.info('\t\tConvolution with ReLU activation for %s',scope)
-                                logger.info('\t\t\tWeights: %s', weights.name)
-                                h = models_utils.activate(tf.nn.conv2d(tf_inputs,weights,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='conv_hidden')
-                                logger.info('\t\t\tOutput size %s', h.get_shape().as_list())
-                    else:
-                        with tf.variable_scope(config.TF_COL_STR, reuse=True):
-                            with tf.variable_scope(scope, reuse=True) as sc:
-                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
-                                logger.info('\t\tConvolution with ReLU activation for %s',scope)
-                                logger.info('\t\t\tWeights: %s', weights.name)
-                                h = models_utils.activate(tf.nn.conv2d(tf_inputs,weights,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='conv_hidden')
-                                logger.info('\t\t\tOutput size %s', h.get_shape().as_list())
-                else:
-                    if not collision:
-                        logger.info('\t\t(non-collision) Convolution with ReLU activation for %s', scope)
-                        with tf.variable_scope(config.TF_NONCOL_STR, reuse=True):
-                            with tf.variable_scope(scope, reuse=True):
-                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
-                                    config.TF_BIAS_STR)
-                                logger.info('\t\t\tWeights: %s', weights.name)
-                                h = models_utils.activate(
-                                    tf.nn.conv2d(h, weights, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias,
-                                    activation, name='conv_hidden_noncol')
 
-                    else:
-                        logger.info('\t\t(collision) Convolution for %s', scope)
-                        with tf.variable_scope(config.TF_COL_STR, reuse=True):
-                            with tf.variable_scope(scope, reuse=True):
-                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
-                                    config.TF_BIAS_STR)
-                                logger.info('\t\t\tWeights: %s', weights.name)
-                                h = models_utils.activate(
-                                    tf.nn.conv2d(h, weights, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias,
-                                    activation, name='conv_hidden_col')
+                if scope=='conv1':
+                    with tf.variable_scope(config.TF_NONCOL_STR, reuse=True):
+                        with tf.variable_scope(scope, reuse=True) as sc:
+                            nc_weights, nc_bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(config.TF_BIAS_STR)
+                            logger.info('\t\tConvolution with ReLU activation for %s', scope)
+                            logger.info('\t\t\tWeights: %s', nc_weights.name)
+                            h_nc = models_utils.activate(
+                                tf.nn.conv2d(tf_inputs, nc_weights, strides=config.TF_ANG_STRIDES[scope],
+                                             padding='SAME') + nc_bias, activation, name='conv_hidden_nc')
+                            logger.info('\t\t\tOutput size %s', h_nc.get_shape().as_list())
+
+                    with tf.variable_scope(config.TF_COL_STR, reuse=True):
+                        with tf.variable_scope(scope, reuse=True) as sc:
+                            c_weights, c_bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                                config.TF_BIAS_STR)
+                            logger.info('\t\tConvolution with ReLU activation for %s',scope)
+                            logger.info('\t\t\tWeights: %s', c_weights.name)
+                            h_c = models_utils.activate(tf.nn.conv2d(tf_inputs,c_weights,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+c_bias,activation,name='conv_hidden_c')
+                            logger.info('\t\t\tOutput size %s', h_c.get_shape().as_list())
+
+                    h = tf.concat([h_nc,h_c],axis=3)
+                else:
+                    with tf.variable_scope(config.TF_NONCOL_STR, reuse=True):
+                        with tf.variable_scope(scope, reuse=True) as sc:
+                            nc_weights, nc_bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                                config.TF_BIAS_STR)
+                            logger.info('\t\tConvolution with ReLU activation for %s', scope)
+                            logger.info('\t\t\tWeights: %s', nc_weights.name)
+                            h_nc = models_utils.activate(
+                                tf.nn.conv2d(h, nc_weights, strides=config.TF_ANG_STRIDES[scope],
+                                             padding='SAME') + nc_bias, activation, name='conv_hidden_nc')
+                            logger.info('\t\t\tOutput size %s', h_nc.get_shape().as_list())
+
+                    with tf.variable_scope(config.TF_COL_STR, reuse=True):
+                        with tf.variable_scope(scope, reuse=True) as sc:
+                            c_weights, c_bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                                config.TF_BIAS_STR)
+                            logger.info('\t\tConvolution with ReLU activation for %s', scope)
+                            logger.info('\t\t\tWeights: %s', c_weights.name)
+                            h_c = models_utils.activate(
+                                tf.nn.conv2d(h, c_weights, strides=config.TF_ANG_STRIDES[scope],
+                                             padding='SAME') + c_bias, activation, name='conv_hidden_c')
+                            logger.info('\t\t\tOutput size %s', h_c.get_shape().as_list())
+
+                    h = tf.concat([h_nc, h_c], axis=3)
 
             elif 'pool' in scope:
                 logger.info('\t\tMax pooling for %s', scope)
-                if not collision:
-                    h = tf.nn.max_pool(h,config.TF_VAR_SHAPES_DUAL_DETACHED_NONCOL[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
-                else:
-                    h = tf.nn.max_pool(h, config.TF_VAR_SHAPES_DUAL_DETACHED_COL[scope],
-                                       config.TF_ANG_STRIDES[scope], padding='SAME', name='pool_hidden')
+                h = tf.nn.max_pool(h,config.TF_VAR_SHAPES_DUAL_NAIVE_NONCOL[scope],config.TF_ANG_STRIDES[scope],padding='SAME',name='pool_hidden')
 
             elif 'fc' in scope:
                 if scope == config.TF_FIRST_FC_ID:
-                    if not collision:
-                        with tf.variable_scope(config.TF_NONCOL_STR):
-                            h_shape = h.get_shape().as_list()
-                            logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
-                            h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
-                            with tf.variable_scope(scope, reuse=True) as sc:
-                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
-                                    config.TF_BIAS_STR)
-                                logger.info('\t\t\tWeights: %s', weights.name)
-                                h = models_utils.activate(tf.matmul(h, weights) + bias, activation)
 
-                    else:
-                        with tf.variable_scope(config.TF_COL_STR):
-                            h_shape = h.get_shape().as_list()
-                            logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
-                            h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
-                            with tf.variable_scope(scope, reuse=True) as sc:
-                                weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
-                                    config.TF_BIAS_STR)
-                                h = models_utils.activate(tf.matmul(h, weights) + bias, activation)
+                    h_shape = h.get_shape().as_list()
+                    logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
+                    h = tf.reshape(h, [batch_size, h_shape[1] * h_shape[2] * h_shape[3]])
 
+                    with tf.variable_scope(scope, reuse=True) as sc:
+                        weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                            config.TF_BIAS_STR)
+                        logger.info('\t\t\tWeights: %s', weights.name)
+                        h = models_utils.activate(tf.matmul(h, weights) + bias, activation)
 
-                    return h
                 else:
                     raise NotImplementedError
+
+            elif scope=='out':
+
+                with tf.variable_scope(scope, reuse=True) as sc:
+                    weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
+                        config.TF_BIAS_STR)
+
+                    h = tf.matmul(h,weights)+bias
+
             else:
                 raise NotImplementedError
 
     return h
 
-def logits_dual(tf_inputs):
-    tf_noncol_logits = logits_until_top(tf_inputs,collision=False)
-    tf_col_logits = logits_until_top(tf_inputs,collision=True)
-
-    tf_concat_logits = tf.concat([tf_noncol_logits, tf_col_logits], axis=1)
-
-    with tf.variable_scope(config.TF_NONCOL_STR, reuse=True):
-        with tf.variable_scope(config.TF_ANG_SCOPES[-1], reuse=True):
-            w_noncol = tf.get_variable(config.TF_WEIGHTS_STR)
-            b_noncol = tf.get_variable(config.TF_BIAS_STR)
-
-    with tf.variable_scope(config.TF_COL_STR, reuse=True):
-        with tf.variable_scope(config.TF_ANG_SCOPES[-1], reuse=True):
-            w_col = tf.get_variable(config.TF_WEIGHTS_STR)
-            b_col = tf.get_variable(config.TF_BIAS_STR)
-
-    tf_concat_out_weights = tf.concat([w_noncol, w_col], axis=0)
-
-    return tf.matmul(tf_concat_logits, tf_concat_out_weights) + (b_col + b_noncol)/2.0
-
 
 def predictions_and_labels_with_inputs(tf_inputs, tf_labels):
-    tf_logits = logits_dual(tf_inputs)
-    return tf.nn.tanh(tf_logits),tf_labels
+    tf_logits = logits(tf_inputs)
+    return models_utils.activate(tf_logits,activation_type=out_activation),tf_labels
 
 
-def calculate_loss(tf_logits, tf_labels, collision):
+def calculate_loss(tf_logits, tf_labels):
+    mask_predictions = False
+    random_masking = False
+    tf_out = tf_logits
+    tf_label_weights = tf.reduce_mean(tf_labels, axis=[0])
 
-    loss = tf.reduce_mean(tf.reduce_sum(
-        (tf.nn.tanh(tf_logits) - tf_labels)**2  *tf.abs(tf.reduce_mean(tf_labels,axis=[0]),
-                                                        ),axis=[1]),axis=[0])
+    if mask_predictions and not random_masking:
+        masked_preds = models_utils.activate(tf_logits,activation_type=out_activation) * tf.cast(tf.not_equal(tf_labels, 0.0), dtype=tf.float32)
+        loss = tf.reduce_mean(
+            tf.reduce_sum((masked_preds - tf_labels) ** 2, axis=[1]), axis=[0])
+    elif random_masking:
+        rand_mask = tf.cast(tf.greater(tf.random_normal([config.BATCH_SIZE, 3], dtype=tf.float32), 0.0),
+                            dtype=tf.float32)
+        masked_preds = models_utils.activate(tf_logits,activation_type=out_activation) * (tf.cast(tf.not_equal(tf_labels, 0.0), dtype=tf.float32) + rand_mask)
+        loss = tf.reduce_mean(
+            tf.reduce_sum((masked_preds - tf_labels) ** 2, axis=[1]), axis=[0])
+    else:
+        # use appropriately to weigh output *(1-tf.abs(tf_label_weights))
+        loss = tf.reduce_mean(
+            tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=out_activation) - tf_labels) ** 2), axis=[1]),
+            axis=[0])
+
     return loss
 
 
@@ -201,18 +200,45 @@ if __name__ == '__main__':
     testPredFH.setLevel(logging.DEBUG)
     testPredictionLogger.addHandler(testPredFH)
 
-    config.DETACHED_TOP_LAYERS = True
-    dataset_filenames = {
-        'train_dataset': ['..' + os.sep + 'data_indoor_1_1000' + os.sep + 'image-direction-shuffled.tfrecords'],
-        'train_bump_dataset': ['..' + os.sep + 'data_indoor_1_bump_200' + os.sep + 'image-direction-shuffled.tfrecords'],
-        'test_dataset': ['..' + os.sep + 'data_grande_salle_1000' + os.sep + 'image-direction-shuffled.tfrecords'] ,
-        'test_bump_dataset': ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep + 'image-direction-shuffled.tfrecords']
+    dataset_filenames = {'train_dataset': ['..' + os.sep + 'data_indoor_1_1000' + os.sep +
+                                           'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
+                                           range(3)] +
+                                          ['..' + os.sep + 'data_sandbox_1000' + os.sep +
+                                           'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
+                                           range(3)] +
+                                          ['..' + os.sep + 'data_grande_salle_1000' + os.sep +
+                                           'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
+                                           range(3)],
+                         'train_bump_dataset': ['..' + os.sep + 'data_indoor_1_bump_200' + os.sep +
+                                                'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for
+                                                i in
+                                                range(3)] +
+                                               ['..' + os.sep + 'data_sandbox_bump_200' + os.sep +
+                                                'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for
+                                                i in
+                                                range(3)] +
+                                               ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep +
+                                                'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for
+                                                i in
+                                                range(3)],
+                         'test_dataset': ['..' + os.sep + 'data_indoor_1_1000' + os.sep +
+                                          'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
+                                         ['..' + os.sep + 'data_sandbox_1000' + os.sep +
+                                          'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
+                                         ['..' + os.sep + 'data_grande_salle_1000' + os.sep +
+                                          'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'],
+                         'test_bump_dataset': ['..' + os.sep + 'data_indoor_1_bump_200' + os.sep +
+                                               'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
+                                              ['..' + os.sep + 'data_sandbox_bump_200' + os.sep +
+                                               'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
+                                              ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep +
+                                               'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords']
                          }
 
-    dataset_sizes = {'train_dataset': 1000 + 1000,
-                     'train_bump_dataset': 400,
-                     'test_dataset': 1000,
-                     'test_bump_dataset': 200}
+    dataset_sizes = {'train_dataset': sum([250 for i in range(9)]),
+                     'train_bump_dataset': sum([50 for i in range(9)]),
+                     'test_dataset': sum([250, 250, 250]),
+                     'test_bump_dataset': sum([50, 50, 50])}
 
     min_col_loss, min_noncol_loss = 10000,10000
     col_exceed_min_count, noncol_exceed_min_count = 0,0
@@ -243,16 +269,17 @@ if __name__ == '__main__':
                          'Collision Accuracy (Soft);Preci-NC-L,Preci-NC-S,Preci-NC-R;Rec-NC-L,Rec-NC-S,Rec-NC-R;' +
                          'Preci-C-L,Preci-C-S,Preci-C-R;Rec-C-L,Rec-C-S,Rec-C-R')
 
-    batch_size = 10
+    batch_size = config.BATCH_SIZE
 
-    graph = tf.Graph()
+
     configp = tf.ConfigProto(allow_soft_placement=True,log_device_placement=False)
-    sess = tf.InteractiveSession(graph=graph,config=configp)
+    configp.gpu_options.per_process_gpu_memory_fraction = 0.9
+    sess = tf.InteractiveSession(config=configp)
 
-    with sess.as_default() and graph.as_default():
+    with sess.as_default():
 
-        models_utils.set_from_main(sess, graph, logger)
-        cnn_variable_initializer.set_from_main(sess,graph)
+        models_utils.set_from_main(sess, logger)
+        cnn_variable_initializer.set_from_main(sess)
 
         cnn_variable_initializer.build_tensorflw_variables_dual_naive()
 
@@ -276,19 +303,17 @@ if __name__ == '__main__':
             all_bump_train_data, batch_size, shuffle=True,
             training_data=True, use_opposite_label=True,inputs_for_sdae=False)
 
-        tf_logits = logits_dual(tf_images)
-
-        tf_bump_logits = logits_dual(tf_bump_images)
-
+        tf_logits = logits(tf_images)
         tf_train_predictions,tf_train_actuals = predictions_and_labels_with_inputs(tf_images,tf_labels)
-        tf_train_bump_predictions,tf_train_bump_actuals = predictions_and_labels_with_inputs(tf_bump_images,tf_bump_labels)
 
-        tf_loss = calculate_loss(tf_logits, tf_labels, collision=False)
-        tf_bump_loss = calculate_loss(tf_bump_logits, tf_bump_labels, collision=True)
+        tf_loss = calculate_loss(tf_logits, tf_labels)
 
         noncol_var_list, col_var_list = [],[]
         for v in tf.global_variables():
             if 'out' in v.name and config.TF_MOMENTUM_STR not in v.name:
+                col_var_list.append(v)
+                noncol_var_list.append(v)
+            if 'fc' in v.name and config.TF_MOMENTUM_STR not in v.name:
                 col_var_list.append(v)
                 noncol_var_list.append(v)
             elif config.TF_NONCOL_STR in v.name and config.TF_MOMENTUM_STR not in v.name:
@@ -315,13 +340,13 @@ if __name__ == '__main__':
         tf.global_variables_initializer().run(session=sess)
 
         rand_direction = None
-        for epoch in range(120):
+        for epoch in range(100):
             avg_loss = []
             avg_bump_loss = []
 
             for step in range(dataset_sizes['train_dataset']//batch_size):
 
-                if np.random.random()<0.6:
+                if np.random.random()<0.7:
                     l1, _, _, gnv = sess.run([tf_loss, tf_optimize,tf_mom_update_ops,tf_grads_and_vars])
                     avg_loss.append(l1)
 
