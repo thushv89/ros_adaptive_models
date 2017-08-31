@@ -39,6 +39,8 @@ def activate(x,activation_type,name='activation'):
         return lrelu(x,name=name)
     elif activation_type=='sigmoid':
         return tf.nn.sigmoid(x,name=name)
+    elif activation_type == 'softmax':
+        return tf.nn.softmax(x,name=name)
     else:
         raise NotImplementedError
 
@@ -65,7 +67,7 @@ def get_fc_height_width(input_size, scope_list, strides):
     return fc_h,fc_w
 
 
-def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae):
+def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae, rand_valid_direction_for_bump):
     '''
 
     :param filenames: Filenames as a list
@@ -128,16 +130,13 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
 
-        if not use_opposite_label:
-            if config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label,config.TF_NUM_CLASSES,dtype=tf.float32,on_value=0.5,off_value=0.0)
-            else:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
-        else:
-            if config.ENABLE_SOFT_CLASSIFICATION:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-0.5, off_value=0.0)
+        if use_opposite_label:
+            if rand_valid_direction_for_bump:
+                raise NotImplementedError
             else:
                 one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
+        else:
+            one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
 
         # standardize image
         image = tf.image.per_image_standardization(image)

@@ -29,7 +29,7 @@ graph = None
 sess = None
 
 activation = config.ACTIVATION
-out_activation = config.OUT_ACTIVATION
+out_activation = 'tanh'
 
 max_thresh = 0.25
 min_thresh = -0.001

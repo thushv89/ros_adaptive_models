@@ -33,7 +33,7 @@ graph = None
 sess = None
 
 activation = config.ACTIVATION
-output_activation = config.OUTPUT_ACTIVATION
+output_activation = 'sigmoid'
 
 max_thresh = 0.55
 min_thresh = 0.45
@@ -127,19 +127,28 @@ def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col
 def calculate_loss(tf_logits, tf_labels):
     mask_predictions = False
     random_masking = False
-    tf_out = tf_logits
-    tf_label_weights = tf.reduce_mean(tf_labels, axis=[0])
+    tf_label_weights = tf.abs(tf.reduce_mean(tf_labels, axis=[0]))
 
     if mask_predictions and not random_masking:
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * tf.cast(tf.not_equal(tf_labels,0.0),dtype=tf.float32)
-        loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *(1.0-tf.abs(tf_label_weights)),axis=[1]),axis=[0])
+        loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *(1.0-tf_label_weights),axis=[1]),axis=[0])
     elif random_masking:
         rand_mask = tf.cast(tf.greater(tf.random_normal([config.BATCH_SIZE,3], dtype=tf.float32),0.0),dtype=tf.float32)
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * (tf.cast(tf.not_equal(tf_labels, 0.0), dtype=tf.float32) + rand_mask)
-        loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 *(1.0-tf.abs(tf_label_weights)), axis=[1]), axis=[0])
+        loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 *(1.0-tf_label_weights), axis=[1]), axis=[0])
     else:
-        # use appropriately to weigh output *(1-tf.abs(tf_label_weights))
-        loss = tf.reduce_mean(tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=output_activation) - tf_labels)**2)*(1.0-tf.abs(tf_label_weights)),axis=[1]),axis=[0])
+        # use appropriately to weigh output *(1-tf_label_weights)
+        loss = tf.reduce_mean(tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=output_activation) - tf_labels)**2)*(1.0-tf_label_weights),axis=[1]),axis=[0])
+
+    return loss
+
+
+def calculate_loss_softmax(tf_logits, tf_labels):
+
+    tf_label_weights = tf.abs(tf.reduce_mean(tf_labels, axis=[0]))
+    # use appropriately to weigh output *(1-tf_label_weights)
+    loss = tf.reduce_mean(
+        tf.nn.softmax_cross_entropy_with_logits(labels=tf_labels,logits=tf_logits),axis=[0])
 
     return loss
 
@@ -390,7 +399,7 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
     inc_noncol_gstep = inc_gstep(noncol_global_step)
 
     tf_logits = logits(tf_images, is_training=True)
-    tf_loss = calculate_loss(tf_logits, tf_labels)
+    tf_loss = calculate_loss_softmax(tf_logits, tf_labels)
 
     tf_optimize, tf_mom_update_ops, tf_grads_and_vars = cnn_optimizer.optimize_model_naive(tf_loss, noncol_global_step, collision=False)
 
@@ -480,7 +489,6 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
 
 
 def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,dataset_size,
-                                                       tf_bump_images, tf_bump_labels, bump_dataset_size,
                                                        tf_test_images,tf_test_labels, tf_test_img_ids, test_dataset_size,
                                                        tf_bump_test_images, tf_bump_test_labels, tf_bump_test_img_ids, test_bump_dataset_size,
                                                        n_epochs, test_interval, sub_folder):
@@ -519,16 +527,11 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
     inc_col_gstep = inc_gstep(col_global_step)
 
     tf_logits = logits(tf_images, is_training=True)
-    tf_loss = calculate_loss(tf_logits, tf_labels)
-
-    tf_bump_logits = logits(tf_bump_images, is_training=True)
-    tf_bump_loss = calculate_loss(tf_bump_logits, tf_bump_labels)
+    tf_loss = calculate_loss_softmax(tf_logits, tf_labels)
 
     tf_optimize, tf_mom_update_ops, tf_grads_and_vars = cnn_optimizer.optimize_model_naive(tf_loss, noncol_global_step, collision=False)
-    tf_bump_optimize, tf_bump_mom_update_ops, _ = cnn_optimizer.optimize_model_naive(tf_bump_loss, col_global_step, collision=True)
 
     tf_train_predictions = predictions_with_inputs(tf_images)
-    tf_train_bump_predictions = predictions_with_inputs(tf_bump_images)
 
     tf_test_predictions = predictions_with_inputs(tf_test_images)
     tf_bump_test_predictions = predictions_with_inputs(tf_bump_test_images)
@@ -545,42 +548,20 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
     for epoch in range(n_epochs):
         avg_loss = []
         avg_train_accuracy = []
-        avg_bump_loss = []
-        avg_bump_train_accuracy = []
-
 
         # ============================================================================
         # Training Phase
         # ============================================================================
         for step in range(config.FACTOR_OF_TRAINING_TO_USE * dataset_size // config.BATCH_SIZE ):
+            l1, _,_, pred, train_labels = sess.run([tf_loss, tf_optimize, tf_mom_update_ops, tf_train_predictions, tf_labels])
+            avg_loss.append(l1)
+            avg_train_accuracy.append(
+                models_utils.accuracy(pred, train_labels, use_argmin=False))
 
-            if np.random.random() < 0.7:
-                l1, _,_, pred, train_labels = sess.run([tf_loss, tf_optimize, tf_mom_update_ops, tf_train_predictions, tf_labels])
-                avg_loss.append(l1)
-                avg_train_accuracy.append(
-                    models_utils.soft_accuracy(pred, train_labels, use_argmin=False, max_thresh=max_thresh,
-                                               min_thresh=min_thresh))
-
-                if step < 2:
-                    logger.debug('Predictions for Non-Collided data')
-                    for pred, lbl in zip(pred, train_labels):
-                        logger.debug('\t%s;%s', pred, lbl)
-
-            else:
-                bump_l1, bump_logits, _,_, bump_pred, train_bump_labels = sess.run([tf_bump_loss, tf_bump_logits,
-                                                                                  tf_bump_optimize, tf_bump_mom_update_ops,
-                                                                                  tf_train_bump_predictions,
-                                                                                  tf_bump_labels])
-
-                avg_bump_loss.append(bump_l1)
-                avg_bump_train_accuracy.append(
-                    models_utils.soft_accuracy(bump_pred, train_bump_labels, use_argmin=True, max_thresh=max_thresh,
-                                               min_thresh=min_thresh))
-
-                if step < 2:
-                    logger.debug('Predictions for Collided data')
-                    for pred, lbl in zip(bump_pred, train_bump_labels):
-                        logger.debug('\t%s;%s', pred, lbl)
+            if step < 2:
+                logger.debug('Predictions for data')
+                for pred, lbl in zip(pred, train_labels):
+                    logger.debug('\t%s;%s', pred, lbl)
 
         # ============================================================================
         # Calculations related to decaying learning rate
@@ -593,25 +574,11 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
 
         if noncol_exceed_min_count >= 3:
             logger.info('Stepping down collision learning rate')
-            sess.run(inc_col_gstep)
+            sess.run(inc_noncol_gstep)
             noncol_exceed_min_count = 0
 
         logger.info('\tAverage Loss for Epoch %d: %.5f' % (epoch, np.mean(avg_loss)))
         logger.info('\t\t Training accuracy: %.3f' % np.mean(avg_train_accuracy))
-
-        if min_col_loss > np.mean(avg_bump_loss):
-            min_col_loss = np.mean(avg_bump_loss)
-        else:
-            col_exceed_min_count += 1
-            logger.info('Increase col_exceed to %d', col_exceed_min_count)
-
-        if col_exceed_min_count >= 3:
-            logger.info('Stepping down non-collision learning rate')
-            sess.run(inc_noncol_gstep)
-            col_exceed_min_count = 0
-
-        logger.info('\tAverage Bump Loss (Train) for Epoch %d: %.5f' % (epoch, np.mean(avg_bump_loss)))
-        logger.info('\t\tAverage Bump Accuracy (Train) for Epoch %d: %.5f' % (epoch, np.mean(avg_bump_train_accuracy)))
 
         # ============================================================================
         # Testing Phase
@@ -638,9 +605,7 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
     coord.request_stop()
     coord.join(threads)
 
-    train_results['col-loss'] = np.mean(avg_bump_loss)
     train_results['noncol-loss'] = np.mean(avg_loss)
-    train_results['col-accuracy'] = np.mean(avg_bump_train_accuracy)
     train_results['noncol-accuracy'] = np.mean(avg_train_accuracy)
 
     # average out the accuracies:
@@ -685,7 +650,7 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
     :param test_interval:
     :return:
     '''
-    global sess
+    global sess,output_activation,min_thresh,max_thresh
 
     dataset_filenames = {'train_dataset':['..' + os.sep + 'data_indoor_1_1000' + os.sep +
                                        'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords'%i for i in range(3)] +
@@ -741,29 +706,42 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
             bumptestdsize = sum(dataset_sizes['test_bump_dataset'])
 
 
-            tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
-                dataset_filenames_chunk, config.BATCH_SIZE, shuffle=True,
-                training_data=True, use_opposite_label=False, inputs_for_sdae=False)
+            if include_bump_optimize:
+                tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
+                    dataset_filenames_chunk, config.BATCH_SIZE//2, shuffle=True,
+                    training_data=True, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
-            tf_bump_img_ids, tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
-                bump_dataset_filenames_chunk, config.BATCH_SIZE, shuffle=True,
-                training_data=True, use_opposite_label=True, inputs_for_sdae=False)
+                tf_bump_img_ids, tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
+                    bump_dataset_filenames_chunk, config.BATCH_SIZE//2, shuffle=True,
+                    training_data=True, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=True)
+
+            else:
+                tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
+                    dataset_filenames_chunk, config.BATCH_SIZE, shuffle=True,
+                    training_data=True, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
             tf_test_img_ids, tf_test_images, tf_test_labels = models_utils.build_input_pipeline(dataset_filenames['test_dataset'],
                                                                                                 config.BATCH_SIZE,
                                                                                                 shuffle=False,
                                                                                                 training_data=False,
                                                                                                 use_opposite_label=False,
-                                                                                                inputs_for_sdae=False)
+                                                                                                inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
             tf_bump_test_img_ids, tf_bump_test_images, tf_bump_test_labels = models_utils.build_input_pipeline(
                 dataset_filenames['test_bump_dataset'], config.BATCH_SIZE, shuffle=False,
-                training_data=False, use_opposite_label=True, inputs_for_sdae=False)
+                training_data=False, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
             if include_bump_optimize:
+                output_activation = 'sigmoid'
+                min_thresh = 0.6
+                max_thresh = 0.4
+
+                tf_both_images = tf.concat([tf_images,tf_bump_images],axis=0)
+                tf_both_labels = tf.concat([tf_labels,tf_bump_labels],axis=0)
+
                 train_results, test_results = train_with_one_non_collision_collision_combination(
-                    sess, tf_images,tf_labels,dsize,tf_bump_images,tf_bump_labels,bump_dsize,
-                    tf_test_images,tf_test_labels,tf_test_img_ids, testdsize,
+                    sess, tf_both_images,tf_both_labels,dsize+bump_dsize,
+                    tf_test_images,tf_test_labels,tf_test_img_ids, testdsize+bump_dsize,
                     tf_bump_test_images,tf_bump_test_labels,tf_bump_test_img_ids,bumptestdsize,
                     n_epochs, test_interval,main_dir + os.sep + 'trained_with_%d_data'%used_data_percentage
                 )
@@ -773,7 +751,6 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 bump_test_accuracy = test_results['col-accuracy-hard']
                 bump_soft_accuracy = test_results['col-accuracy-soft']
                 avg_loss = train_results['noncol-loss']
-                avg_bump_loss = train_results['col-loss']
                 test_noncol_precision = test_results['noncol-precision']
                 test_noncol_recall = test_results['noncol-recall']
                 test_col_precision = test_results['col-precision']
@@ -789,12 +766,14 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 accuracy_logger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', n_epochs, np.mean(test_accuracy),
                                      np.mean(soft_test_accuracy),
                                      np.mean(bump_test_accuracy), np.mean(bump_soft_accuracy), np.mean(avg_loss),
-                                     np.mean(avg_bump_loss),
+                                     -1.0,
                                      noncol_precision_string, noncol_recall_string, col_precision_string,
                                      col_recall_string)
 
             else:
-
+                output_activation = 'softmax'
+                max_thresh = 0.4
+                min_thresh = 0.2
                 train_results, test_results = train_with_non_collision(
                     sess, tf_images, tf_labels, dsize,
                     tf_test_images, tf_test_labels, tf_test_img_ids, testdsize,
