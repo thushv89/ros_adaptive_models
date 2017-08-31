@@ -124,21 +124,32 @@ def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col
     return loss
 
 
-def calculate_loss(tf_logits, tf_labels):
-    mask_predictions = False
+def calculate_loss(tf_logits, tf_labels, weigh_by_frequency=False):
+    mask_predictions = True
     random_masking = False
+
     tf_label_weights = tf.abs(tf.reduce_mean(tf_labels, axis=[0]))
 
     if mask_predictions and not random_masking:
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * tf.cast(tf.not_equal(tf_labels,0.0),dtype=tf.float32)
-        loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *(1.0-tf_label_weights),axis=[1]),axis=[0])
+        if weigh_by_frequency:
+            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *(1.0-tf_label_weights),axis=[1]),axis=[0])
+        else:
+            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2, axis=[1]),axis=[0])
     elif random_masking:
         rand_mask = tf.cast(tf.greater(tf.random_normal([config.BATCH_SIZE,3], dtype=tf.float32),0.0),dtype=tf.float32)
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * (tf.cast(tf.not_equal(tf_labels, 0.0), dtype=tf.float32) + rand_mask)
-        loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 *(1.0-tf_label_weights), axis=[1]), axis=[0])
+        if weigh_by_frequency:
+            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 *(1.0-tf_label_weights), axis=[1]), axis=[0])
+        else:
+            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 , axis=[1]), axis=[0])
     else:
         # use appropriately to weigh output *(1-tf_label_weights)
-        loss = tf.reduce_mean(tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=output_activation) - tf_labels)**2)*(1.0-tf_label_weights),axis=[1]),axis=[0])
+        if weigh_by_frequency:
+            loss = tf.reduce_mean(tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=output_activation) - tf_labels)**2)*(1.0-tf_label_weights),axis=[1]),axis=[0])
+        else:
+            loss = tf.reduce_mean(tf.reduce_sum(
+                ((models_utils.activate(tf_logits, activation_type=output_activation) - tf_labels) ** 2), axis=[1]), axis=[0])
 
     return loss
 
@@ -149,6 +160,16 @@ def calculate_loss_softmax(tf_logits, tf_labels):
     # use appropriately to weigh output *(1-tf_label_weights)
     loss = tf.reduce_mean(
         tf.nn.softmax_cross_entropy_with_logits(labels=tf_labels,logits=tf_logits),axis=[0])
+
+    return loss
+
+
+def calculate_loss_sigmoid(tf_logits, tf_labels):
+
+    tf_label_weights = tf.abs(tf.reduce_mean(tf_labels, axis=[0]))
+    # use appropriately to weigh output *(1-tf_label_weights)
+    loss = tf.reduce_mean(
+        tf.nn.sigmoid_cross_entropy_with_logits(labels=tf_labels,logits=tf_logits),axis=[0])
 
     return loss
 
@@ -399,7 +420,7 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
     inc_noncol_gstep = inc_gstep(noncol_global_step)
 
     tf_logits = logits(tf_images, is_training=True)
-    tf_loss = calculate_loss_softmax(tf_logits, tf_labels)
+    tf_loss = calculate_loss_sigmoid(tf_logits, tf_labels)
 
     tf_optimize, tf_mom_update_ops, tf_grads_and_vars = cnn_optimizer.optimize_model_naive(tf_loss, noncol_global_step, collision=False)
 
@@ -527,7 +548,7 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
     inc_col_gstep = inc_gstep(col_global_step)
 
     tf_logits = logits(tf_images, is_training=True)
-    tf_loss = calculate_loss_softmax(tf_logits, tf_labels)
+    tf_loss = calculate_loss(tf_logits, tf_labels)
 
     tf_optimize, tf_mom_update_ops, tf_grads_and_vars = cnn_optimizer.optimize_model_naive(tf_loss, noncol_global_step, collision=False)
 
@@ -705,15 +726,16 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
             testdsize = sum(dataset_sizes['test_dataset'])
             bumptestdsize = sum(dataset_sizes['test_bump_dataset'])
 
-
             if include_bump_optimize:
+                bump_batch_size = config.BATCH_SIZE//4
+                nonbump_batch_size = config.BATCH_SIZE - bump_batch_size
                 tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
-                    dataset_filenames_chunk, config.BATCH_SIZE//2, shuffle=True,
+                    dataset_filenames_chunk, nonbump_batch_size, shuffle=True,
                     training_data=True, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
                 tf_bump_img_ids, tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
-                    bump_dataset_filenames_chunk, config.BATCH_SIZE//2, shuffle=True,
-                    training_data=True, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=True)
+                    bump_dataset_filenames_chunk, bump_batch_size, shuffle=True,
+                    training_data=True, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
             else:
                 tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
@@ -732,9 +754,9 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 training_data=False, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
             if include_bump_optimize:
-                output_activation = 'sigmoid'
-                min_thresh = 0.6
-                max_thresh = 0.4
+                output_activation = 'tanh'
+                min_thresh = 0.2
+                max_thresh = 0.0
 
                 tf_both_images = tf.concat([tf_images,tf_bump_images],axis=0)
                 tf_both_labels = tf.concat([tf_labels,tf_bump_labels],axis=0)
@@ -771,9 +793,9 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                                      col_recall_string)
 
             else:
-                output_activation = 'softmax'
-                max_thresh = 0.4
-                min_thresh = 0.2
+                output_activation = 'sigmoid'
+                max_thresh = 0.6
+                min_thresh = 0.4
                 train_results, test_results = train_with_non_collision(
                     sess, tf_images, tf_labels, dsize,
                     tf_test_images, tf_test_labels, tf_test_img_ids, testdsize,
@@ -901,4 +923,4 @@ if __name__ == '__main__':
     configp.gpu_options.per_process_gpu_memory_fraction = 0.9
 
     test_interval = 25
-    train_using_different_fractions_of_training_data(configp, 50, IMG_DIR,test_interval,include_bump_optimize=False)
+    train_using_different_fractions_of_training_data(configp, 50, IMG_DIR,test_interval,include_bump_optimize=True)

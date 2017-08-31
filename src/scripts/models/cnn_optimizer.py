@@ -73,7 +73,7 @@ def optimize_model_naive(loss, global_step, collision):
     :param collision:
     :return:
     '''
-    momentum = 0.9
+    momentum = 0.0
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(

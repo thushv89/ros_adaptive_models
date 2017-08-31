@@ -17,7 +17,7 @@ FEAT_IMG_ID = 'id'
 # NEW INPUT SIZE  (RESIZED) (96,56)
 USE_GRAYSCALE = False
 TF_INPUT_SIZE = [96,128,3] # Original
-TF_INPUT_AFTER_RESIZE = [64,128,3]
+TF_INPUT_AFTER_RESIZE = [64,64,3]
 
 if not USE_GRAYSCALE:
     TF_RESIZE_TO = [56, 128, 3]
@@ -95,8 +95,8 @@ if USE_CONV_STRIDE_WITHOUT_POOLING:
 
 else:
     # Best performing model from model search
-    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 8, 3, 32], 'pool1':[1,6,6,1], 'conv2': [6, 6, 32, 64], 'pool2':[1,2,4,1],
-                               'conv3': [6, 6, 64, 64],'pool3':[1,6,6,1], 'conv4': [6,6,64,64], 'conv5':[6,6,64,64],
+    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [6, 6, 3, 32], 'pool1':[1,6,6,1], 'conv2': [4, 4, 32, 64], 'pool2':[1,4,4,1],
+                               'conv3': [4, 4, 64, 64],'pool3':[1,4,4,1], 'conv4': [4,4,64,64], 'conv5':[4,4,64,64],
                                'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
                                'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
