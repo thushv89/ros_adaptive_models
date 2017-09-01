@@ -77,8 +77,8 @@ def optimize_model_naive(loss, global_step, collision):
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
-                                   name='learning_rate_decay'), 1e-4)
+        tf.train.exponential_decay(0.0001, global_step, decay_steps=1, decay_rate=0.5, staircase=True,
+                                   name='learning_rate_decay'), 1e-6)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
     for si, scope in enumerate(config.TF_ANG_SCOPES):

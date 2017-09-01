@@ -127,32 +127,32 @@ def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col
 
 
 def calculate_loss(tf_logits, tf_labels, weigh_by_frequency=False):
-    mask_predictions = True
+    mask_predictions = False
     random_masking = False
     use_heuristic_weights = True
 
     if not use_heuristic_weights:
-        tf_label_weights = tf.reduce_mean(tf.abs(tf_labels), axis=[0])
+        tf_label_weights_inv = 1.0 - tf.reduce_mean(tf.abs(tf_labels), axis=[0])
     else:
-        tf_label_weights = tf.constant([0.0,0.5,0.0],dtype=tf.float32) # Because we use 1-weights for weighing
+        tf_label_weights_inv =tf_labels * (tf.constant([1.0,0.5,1.0],dtype=tf.float32)) # Because we use 1-weights for weighing
 
     if mask_predictions and not random_masking:
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * tf.cast(tf.not_equal(tf_labels,0.0),dtype=tf.float32)
         if weigh_by_frequency:
-            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *(1.0-tf_label_weights),axis=[1]),axis=[0])
+            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels)**2 *tf_label_weights_inv,axis=[1]),axis=[0])
         else:
             loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2, axis=[1]),axis=[0])
     elif random_masking:
         rand_mask = tf.cast(tf.greater(tf.random_normal([config.BATCH_SIZE,3], dtype=tf.float32),0.0),dtype=tf.float32)
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * (tf.cast(tf.not_equal(tf_labels, 0.0), dtype=tf.float32) + rand_mask)
         if weigh_by_frequency:
-            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 *(1.0-tf_label_weights), axis=[1]), axis=[0])
+            loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 *tf_label_weights_inv, axis=[1]), axis=[0])
         else:
             loss = tf.reduce_mean(tf.reduce_sum((masked_preds - tf_labels) ** 2 , axis=[1]), axis=[0])
     else:
         # use appropriately to weigh output *(1-tf_label_weights)
         if weigh_by_frequency:
-            loss = tf.reduce_mean(tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=output_activation) - tf_labels)**2)*(1.0-tf_label_weights),axis=[1]),axis=[0])
+            loss = tf.reduce_mean(tf.reduce_sum(((models_utils.activate(tf_logits,activation_type=output_activation) - tf_labels)**2)*tf_label_weights_inv,axis=[1]),axis=[0])
         else:
             loss = tf.reduce_mean(tf.reduce_sum(
                 ((models_utils.activate(tf_logits, activation_type=output_activation) - tf_labels) ** 2), axis=[1]), axis=[0])
@@ -428,7 +428,7 @@ def train_with_non_collision(sess,
                              tf_valid_images,    tf_valid_labels,     valid_dataset_size,
                              tf_test_images,     tf_test_labels,      tf_test_img_ids,      test_dataset_size,
                              tf_bump_test_images,tf_bump_test_labels, tf_bump_test_img_ids, bump_test_dataset_size,
-                             n_epochs, test_interval, sub_folder,include_bump_test_data):
+                             n_epochs, test_interval, sub_folder,include_bump_test_data, use_cross_entropy, activation):
     '''
     Train a CNN with a set of non-collision images and labels
     Returns Train accuracy (col and non-collision) Train Loss (collision and non-collision)
@@ -463,7 +463,16 @@ def train_with_non_collision(sess,
     inc_noncol_gstep = inc_gstep(noncol_global_step)
 
     tf_logits = logits(tf_images, is_training=True)
-    tf_loss = calculate_loss(tf_logits, tf_labels, weigh_by_frequency=True)
+
+    if use_cross_entropy:
+        if activation=='softmax':
+            tf_loss = calculate_loss_softmax(tf_logits, tf_labels)
+        elif activation=='sigmoid':
+            tf_loss = calculate_loss_sigmoid(tf_logits, tf_labels)
+        else:
+            raise NotImplementedError
+    else:
+        tf_loss = calculate_loss(tf_logits, tf_labels, weigh_by_frequency=True)
 
     tf_optimize, tf_mom_update_ops, tf_grads_and_vars = cnn_optimizer.optimize_model_naive(tf_loss, noncol_global_step, collision=False)
 
@@ -481,6 +490,10 @@ def train_with_non_collision(sess,
 
     test_accuracies_all_epochs = []
     test_soft_accuracies_all_epochs = []
+
+    max_valid_accuracy = 0
+    n_valid_accuracy_staturated = 0
+    valid_saturation_threshold = 3
 
     for epoch in range(n_epochs):
         avg_loss = []
@@ -509,39 +522,44 @@ def train_with_non_collision(sess,
                     TrainLogger.info('%s:%s:%s',pred_item,label_item,is_currect)
 
         print_start_of_new_input_pipline_to_some_logger(TrainLogger,'================== END ==========================')
-        # ============================================================================
-        # Calculations related to decaying learning rate
-        # ============================================================================
-        if min_noncol_loss > np.mean(avg_loss):
-            min_noncol_loss = np.mean(avg_loss)
-        else:
-            noncol_exceed_min_count += 1
-            logger.info('Increase noncol_exceed to %d', noncol_exceed_min_count)
-
-        if noncol_exceed_min_count >= 3:
-            logger.info('Stepping down collision learning rate')
-            sess.run(inc_noncol_gstep)
-            noncol_exceed_min_count = 0
 
         logger.info('\tAverage Loss for Epoch %d: %.5f' % (epoch, np.mean(avg_loss)))
         logger.info('\t\t Training accuracy: %.3f' % np.mean(avg_train_accuracy))
+
+        # =========================================
+        # Validation Phase
+        # =======================================
+
+        avg_valid_accuracy = []
+        for step in range(valid_dataset_size // config.BATCH_SIZE):
+            v_pred, v_labels = sess.run(
+                [tf_valid_predictions, tf_valid_labels])
+            avg_valid_accuracy.append(
+                models_utils.accuracy(v_pred, v_labels, use_argmin=False)
+            )
+            for pred_item, label_item in zip(v_pred, v_labels):
+                is_currect = np.argmax(pred_item) == np.argmax(label_item)
+                ValidLogger.info('%s:%s:%s', pred_item, label_item, is_currect)
+
+        if np.mean(avg_valid_accuracy) > max_valid_accuracy:
+            max_valid_accuracy = np.mean(avg_valid_accuracy)
+        else:
+            n_valid_accuracy_staturated += 1
+            print('Increasing valid_saturated count to: %d', n_valid_accuracy_staturated)
+
+        if n_valid_accuracy_staturated>=valid_saturation_threshold:
+            print('Increasing global step. Validation Accuracy Saturated')
+            sess.run(inc_noncol_gstep)
+            n_valid_accuracy_staturated = 0
+
+        print_start_of_new_input_pipline_to_some_logger(ValidLogger,
+                                                        'Valid Accuracy For Above: %.3f' % np.mean(avg_valid_accuracy))
 
         # ============================================================================
         # Testing Phase
         # ============================================================================
         if (epoch + 1) % test_interval == 0:
-            avg_valid_accuracy = []
-            for step in range(valid_dataset_size // config.BATCH_SIZE):
-                v_pred, v_labels = sess.run(
-                    [tf_valid_predictions, tf_valid_labels])
-                avg_valid_accuracy.append(
-                    models_utils.accuracy(v_pred, v_labels, use_argmin=False)
-                )
-                for pred_item, label_item in zip(v_pred,v_labels):
-                    is_currect = np.argmax(pred_item) == np.argmax(label_item)
-                    ValidLogger.info('%s:%s:%s',pred_item,label_item,is_currect)
 
-            print_start_of_new_input_pipline_to_some_logger(ValidLogger, 'Valid Accuracy For Above: %.3f' % np.mean(avg_valid_accuracy))
 
             test_results = test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
                                           tf_test_predictions, test_dataset_size,
@@ -841,15 +859,25 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                                      col_recall_string)
 
             else:
-                output_activation = 'sigmoid'
-                max_thresh = 0.6
-                min_thresh = 0.4
+                output_activation = 'softmax'
+                if output_activation == 'softmax':
+                    max_thresh = 0.4
+                    min_thresh = 0.2
+
+                elif output_activation == 'sigmoid':
+                    max_thresh = 0.6
+                    min_thresh = 0.4
+                else:
+                    raise NotImplementedError
+
+
                 train_results, test_results = train_with_non_collision(
                     sess, tf_images, tf_labels, dsize,
                     tf_valid_images,tf_valid_labels, validdsize,
                     tf_test_images, tf_test_labels, tf_test_img_ids, testdsize,
                     tf_bump_test_images, tf_bump_test_labels, tf_bump_test_img_ids, bumptestdsize,
-                    n_epochs, test_interval, main_dir + os.sep + 'trained_with_%d_data' % used_data_percentage,True
+                    n_epochs, test_interval, main_dir + os.sep + 'trained_with_%d_data' % used_data_percentage,
+                    include_bump_test_data=True, use_cross_entropy=True, activation=output_activation
                 )
 
                 test_accuracy = test_results['noncol-accuracy-hard']
