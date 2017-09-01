@@ -793,11 +793,11 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 nonbump_batch_size = config.BATCH_SIZE - bump_batch_size
                 tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
                     dataset_filenames_chunk, nonbump_batch_size, shuffle=True,
-                    training_data=True, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
+                    training_data=False, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
                 tf_bump_img_ids, tf_bump_images, tf_bump_labels = models_utils.build_input_pipeline(
                     bump_dataset_filenames_chunk, bump_batch_size, shuffle=True,
-                    training_data=True, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
+                    training_data=False, use_opposite_label=True, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
 
             else:
                 tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(

@@ -129,11 +129,12 @@ def build_tensorflw_variables_multiple():
     global logger,sess
 
     logger.info("Building Tensorflow Variables (Tensorflow)...")
-    with sess.as_default:
-        for di in ['left','straight','right']:
-            with tf.variable_scope(di):
-                for si,scope in enumerate(config.TF_ANG_SCOPES):
-                    with tf.variable_scope(scope) as sc:
+    with sess.as_default():
+
+        for si,scope in enumerate(config.TF_ANG_SCOPES):
+            with tf.variable_scope(scope) as sc:
+                for di in ['left', 'straight', 'right']:
+                    with tf.variable_scope(di):
 
                         # Try Except because if you try get_variable with an intializer and
                         # the variable exists, you will get a ValueError saying the variable exists

@@ -112,8 +112,12 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
         if config.USE_GRAYSCALE:
             image = tf.image.rgb_to_grayscale(image,name='grayscale_image')
         if training_data:
-            image = tf.image.random_brightness(image, 0.5, seed=13345432)
-            image = tf.image.random_contrast(image, lower=0.1, upper=1.8, seed=2353252)
+            flip_rand = tf.random_uniform(shape=[1], minval=0, maxval=1.0, seed=154324654)
+            image = tf.cond(flip_rand[0] > 0.5,
+                            lambda: tf.image.random_brightness(image, 0.5, seed=13345432), lambda: image)
+            flip_rand = tf.random_uniform(shape=[1], minval=0, maxval=1.0, seed=35465454)
+            image = tf.cond(flip_rand[0] > 0.5,
+                            lambda: tf.image.random_contrast(image, lower=0.5, upper=1.8, seed=2353252), lambda: image)
 
         if training_data:
             # crop to a size a bit larger than the actual resize

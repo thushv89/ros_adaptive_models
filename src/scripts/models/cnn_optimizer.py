@@ -73,11 +73,11 @@ def optimize_model_naive(loss, global_step, collision):
     :param collision:
     :return:
     '''
-    momentum = 0.0
+    momentum = 0.9
     mom_update_ops = []
     grads_and_vars = []
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.0001, global_step, decay_steps=1, decay_rate=0.5, staircase=True,
+        tf.train.exponential_decay(0.0005, global_step, decay_steps=1, decay_rate=0.5, staircase=True,
                                    name='learning_rate_decay'), 1e-6)
 
     optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
@@ -112,6 +112,48 @@ def optimize_model_naive(loss, global_step, collision):
     return optimize,mom_update_ops,grads_and_vars
 
 
+def optimize_model_multiple_custom_momentum(loss, global_step, direction):
+    '''
+    Optimize a multiple CNN model with momentum
+
+    :return:
+    '''
+    momentum = 0.9
+    mom_update_ops = []
+    grads_and_vars = []
+    learning_rate = tf.maximum(
+        tf.train.exponential_decay(0.0005, global_step, decay_steps=1, decay_rate=0.5, staircase=True,
+                                   name='learning_rate_decay'), 1e-6)
+
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    for si, scope in enumerate(config.TF_ANG_SCOPES):
+        if 'pool' in scope:
+            continue
+
+        with tf.variable_scope(scope,reuse=True):
+            with tf.variable_scope(direction, reuse=True):
+                w,b = tf.get_variable(config.TF_WEIGHTS_STR),tf.get_variable(config.TF_BIAS_STR)
+                [(g_w,w),(g_b,b)] = optimizer.compute_gradients(loss,[w,b])
+
+                with tf.variable_scope(config.TF_WEIGHTS_STR,reuse=True):
+
+                    w_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
+                    mom_update_ops.append(tf.assign(w_vel, momentum * w_vel + g_w))
+                    grads_and_vars.append((w_vel * learning_rate, w))
+                with tf.variable_scope(config.TF_BIAS_STR,reuse=True):
+                    # TODO: MASKING FOR BIAS
+
+                    b_vel = tf.get_variable(config.TF_MOMENTUM_STR)
+
+                    mom_update_ops.append(tf.assign(b_vel, momentum*b_vel + g_b))
+                    grads_and_vars.append((b_vel * learning_rate, b))
+
+    optimize = optimizer.apply_gradients(grads_and_vars)
+
+    return optimize,mom_update_ops
+
+
 def optimize_model_naive_no_momentum(loss, global_step, varlist=None):
     '''
     Optimize a naive CNN model with the built-in Optimizer
@@ -120,7 +162,7 @@ def optimize_model_naive_no_momentum(loss, global_step, varlist=None):
     :return:
     '''
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+        tf.train.exponential_decay(0.0005, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
 
@@ -308,7 +350,7 @@ def optimize_model_dual_naive(loss, global_step,collision):
     return optimize, mom_update_ops, learning_rate, grads_and_vars
 
 
-def optimize_model_dual_naive_builtin(loss, global_step,var_list):
+def optimize_model_naive_momentum_builtin(loss, global_step, momentum, varlist):
     global logger
 
     '''
@@ -325,5 +367,5 @@ def optimize_model_dual_naive_builtin(loss, global_step,var_list):
         tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-5)
 
-    optimize = tf.train.MomentumOptimizer(learning_rate=learning_rate,momentum=0.9).minimize(loss, var_list=var_list)
-    return optimize, mom_update_ops, learning_rate, grads_and_vars
+    optimize = tf.train.MomentumOptimizer(learning_rate=learning_rate,momentum=momentum).minimize(loss, var_list=varlist)
+    return optimize, grads_and_vars
