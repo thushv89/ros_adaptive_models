@@ -38,11 +38,11 @@ ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the o
 SOFT_NONCOLLISION_LABEL = 0.95
 SOFT_COLLISION_LABEL = 0.05
 
-FC1_WEIGHTS = 256
+FC1_WEIGHTS = 200
 FC1_WEIGHTS_DETACHED = 96
 
 BATCH_SIZE = 50
-USE_DROPOUT = True
+USE_DROPOUT = False
 IN_DROPOUT = 0.1
 LAYER_DROPOUT = 0.25
 
@@ -51,7 +51,7 @@ USE_CONV_STRIDE_WITHOUT_POOLING = False
 ACTIVATION = 'lrelu'
 
 
-FACTOR_OF_TRAINING_TO_USE = 2
+FACTOR_OF_TRAINING_TO_USE = 1.5
 
 
 if USE_CONV_STRIDE_WITHOUT_POOLING:
@@ -95,9 +95,9 @@ if USE_CONV_STRIDE_WITHOUT_POOLING:
 
 else:
     # Best performing model from model search
-    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [6, 6, 3, 32], 'pool1':[1,6,6,1], 'conv2': [4, 4, 32, 64], 'pool2':[1,4,4,1],
-                               'conv3': [4, 4, 64, 64],'pool3':[1,4,4,1], 'conv4': [4,4,64,64], 'conv5':[4,4,64,64],
-                               'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS],
+    TF_ANG_VAR_SHAPES_NAIVE = {'conv1': [4, 4, 3, 32], 'pool1':[1,2,2,1], 'conv2': [4, 4, 32, 32], 'pool2':[1,2,2,1],
+                               'conv3': [4, 4, 32, 32],'pool3':[1,2,2,1], 'conv4': [4,4,32,32], 'conv5':[2,2,64,64],
+                               'fc1': [fc_h * fc_w * 32, FC1_WEIGHTS],
                                'out': [FC1_WEIGHTS, TF_NUM_CLASSES]}
 
     TF_ANG_VAR_SHAPES_MULTIPLE = {'conv1': [4, 8, 3, 12], 'pool1': [1, 6, 6, 1], 'conv2': [6, 6, 12, 24],

@@ -1,5 +1,5 @@
 <launch>
-<node name="map_server" pkg="multi_map_server" type="multi_map_server" args="$(find map_launcher)/indoor-1.yaml">
+<node name="map_server" pkg="multi_map_server" type="multi_map_server" args="$(find map_launcher)/$(arg map)">
 <param name="topic_id" value="map"/>
 </node>
 

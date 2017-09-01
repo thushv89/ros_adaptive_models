@@ -20,7 +20,7 @@ def _bytes_feature(value):
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 
-def dump_to_tfrecord_suffled(data_folder, drive_direct_dict, image_ids,image_fname_prefix, max_instances_per_file):
+def dump_to_tfrecord_suffled(data_folder, data_save_dir, drive_direct_dict, image_ids,image_fname_prefix):
     """
     Converts a dataset to tfrecords.
     :param data_folder:
@@ -34,7 +34,7 @@ def dump_to_tfrecord_suffled(data_folder, drive_direct_dict, image_ids,image_fna
 
     # create 3 tf records each for each direction
 
-    tfrecords_filename = data_folder + os.sep + 'image-direction-shuffled.tfrecords'
+    tfrecords_filename = data_save_dir + os.sep + 'image-direction-shuffled.tfrecords'
     writer = tf.python_io.TFRecordWriter(tfrecords_filename)
 
     # create example for each image write with the writer
@@ -59,6 +59,7 @@ def dump_to_tfrecord_suffled(data_folder, drive_direct_dict, image_ids,image_fna
 
 
     writer.close()
+
 
 def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict, image_ids,image_fname_prefix, max_instances_per_file):
     """
@@ -152,27 +153,63 @@ def dump_to_tfrecord_sorted_by_direction(data_folder, drive_direct_dict, image_i
     for di in range(3):
         writers[di].close()
 
+def get_image_indices_with_uniform_distribution(direction_to_img_id_dict):
+    min_count = 100000000
+    all_img_indices = []
+    for k,v in direction_to_img_id_dict.items():
+        if len(v) < min_count:
+            min_count = len(v)
+
+    for k,v in direction_to_img_id_dict.items():
+        np.random.shuffle(v)
+        all_img_indices.extend(v[:min_count])
+
+
+    return all_img_indices
+
+
 if __name__ == '__main__':
-    is_bump_list = [False, True, False, True, False, True]
+
+    # Used as Test Data (Should have equal amounts for each direction)
+    # =======================================
+    '''is_bump_list = [False, True, False, True, False, True]
 
     data_folders_list = ['.'+os.sep+ '..'+ os.sep+'data_indoor_1_1000', '.'+os.sep+ '..'+ os.sep+'data_indoor_1_bump_200',
                     '.' + os.sep + '..' + os.sep + 'data_sandbox_1000',
                     '.' + os.sep + '..' + os.sep + 'data_sandbox_bump_200',
                     '.' + os.sep + '..' + os.sep + 'data_grande_salle_1000',
-                    '.' + os.sep + '..' + os.sep + 'data_grande_salle_bump_200']
+                    '.' + os.sep + '..' + os.sep + 'data_grande_salle_bump_200']'''
 
+    # Used as Training Data
+    # ==========================================
+    is_bump_list = [False, False,False,False,False, False,False]
+
+    data_folders_list = [
+        '.'+os.sep+ '..'+ os.sep+'apartment-my1-2000',
+        '.' + os.sep + '..' + os.sep + 'apartment-my2-2000',
+       '.' + os.sep + '..' + os.sep + 'apartment-my3-2000',
+        '.' + os.sep + '..' + os.sep + 'data_grande_salle_1000',
+        '.' + os.sep + '..' + os.sep + 'grande_salle-my1-2000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-2000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my1-2000',
+    ]
 
 
     for is_bump_data,data_folder in zip(is_bump_list,data_folders_list):
 
         direction_frequency_stats = [0 for _ in range(3)]
         save_dir = data_folder + os.sep + 'data-chunks-chronological'
+        equal_save_dir = data_folder + os.sep + 'data-equal'
 
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
 
+        if not os.path.exists(equal_save_dir):
+            os.mkdir(equal_save_dir)
+
         angle_dict = {}
-        direction_dict = {}
+        img_id_to_direction_dict = {}
+        direction_to_img_id_dict = {0:[],1:[],2:[]}
         img_indices = []
 
         drive_angle_filename = config.DRIVE_ANGLE_LOG if not is_bump_data else config.BUMP_DRIVE_ANGLE_LOG
@@ -183,7 +220,8 @@ if __name__ == '__main__':
                     txt_tokens = line.split(':')
                     angle_dict[int(txt_tokens[0])] = float(txt_tokens[1])
                     img_indices.append(int(txt_tokens[0]))
-                    direction_dict[int(txt_tokens[0])] = int(txt_tokens[2])
+                    img_id_to_direction_dict[int(txt_tokens[0])] = int(txt_tokens[2])
+                    direction_to_img_id_dict[int(txt_tokens[2])].append(int(txt_tokens[0]))
                     direction_frequency_stats[int(txt_tokens[2])] += 1
         except FileNotFoundError as e:
             print(e)
@@ -192,17 +230,20 @@ if __name__ == '__main__':
         print('Right','Straight','Left')
         print(direction_frequency_stats)
         print()
-        continue
+
         if not is_bump_data:
             data_indices = img_indices
             image_fname_prefix = 'img'
-            max_instances_per_file = 250
+            max_instances_per_file = 200
         else:
             data_indices = img_indices
             image_fname_prefix = 'bump_img'
             max_instances_per_file = 50
 
-        dump_to_tfrecord_in_chunks(data_folder, save_dir, direction_dict,data_indices,image_fname_prefix,max_instances_per_file=max_instances_per_file)
+        dump_to_tfrecord_in_chunks(data_folder, save_dir, img_id_to_direction_dict,data_indices,image_fname_prefix,max_instances_per_file=max_instances_per_file)
+        #equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
+        #dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
+
 
         '''record_iterator = tf.python_io.tf_record_iterator(path=data_folder + os.sep + 'image-direction-0-0.tfrecords')
 

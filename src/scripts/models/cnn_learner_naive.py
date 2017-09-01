@@ -13,6 +13,8 @@ import cnn_variable_initializer
 import cnn_optimizer
 import cnn_model_visualizer
 import visualizer
+import dataset_name_factory
+
 
 logging_level = logging.INFO
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
@@ -127,8 +129,12 @@ def calculate_hybrid_loss(tf_noncol_logits,tf_noncol_labels,tf_col_logits,tf_col
 def calculate_loss(tf_logits, tf_labels, weigh_by_frequency=False):
     mask_predictions = True
     random_masking = False
+    use_heuristic_weights = True
 
-    tf_label_weights = tf.abs(tf.reduce_mean(tf_labels, axis=[0]))
+    if not use_heuristic_weights:
+        tf_label_weights = tf.reduce_mean(tf.abs(tf_labels), axis=[0])
+    else:
+        tf_label_weights = tf.constant([0.0,0.5,0.0],dtype=tf.float32) # Because we use 1-weights for weighing
 
     if mask_predictions and not random_masking:
         masked_preds = models_utils.activate(tf_logits,activation_type=output_activation) * tf.cast(tf.not_equal(tf_labels,0.0),dtype=tf.float32)
@@ -179,35 +185,51 @@ def inc_gstep(gstep):
 
 
 def setup_loggers(filename_suffix):
-    global predictionlogger, bumpPredictionlogger, accuracy_logger
 
-    predictionlogger = logging.getLogger('PredictionLogger-%s'%filename_suffix)
+    trainPredictionLogger = logging.getLogger('TrainPredictionLogger-%s' % filename_suffix)
+    trainPredictionLogger.setLevel(logging.INFO)
+    tr_fh = logging.FileHandler(IMG_DIR + os.sep + 'train-predictions-%s.log' % filename_suffix, mode='w')
+    tr_fh.setFormatter(logging.Formatter('%(message)s'))
+    tr_fh.setLevel(logging.INFO)
+    trainPredictionLogger.addHandler(tr_fh)
+    trainPredictionLogger.info('#ID:Actual:Predicted:Correct?')
+
+    validPredictionlogger = logging.getLogger('ValidPredictionLogger-%s' % filename_suffix)
+    validPredictionlogger.setLevel(logging.INFO)
+    v_fh = logging.FileHandler(IMG_DIR + os.sep + 'valid-predictions-%s.log' % filename_suffix, mode='w')
+    v_fh.setFormatter(logging.Formatter('%(message)s'))
+    v_fh.setLevel(logging.INFO)
+    validPredictionlogger.addHandler(v_fh)
+    validPredictionlogger.info('#ID:Actual:Predicted:Correct?')
+
+    predictionlogger = logging.getLogger('TestPredictionLogger-%s'%filename_suffix)
     predictionlogger.setLevel(logging.INFO)
     fh = logging.FileHandler(IMG_DIR + os.sep + 'predictions-%s.log'%filename_suffix, mode='w')
     fh.setFormatter(logging.Formatter('%(message)s'))
     fh.setLevel(logging.INFO)
     predictionlogger.addHandler(fh)
-    predictionlogger.info('#ID:Actual:Predicted')
+    predictionlogger.info('#ID:Actual:Predicted:Correct?')
 
-    bumpPredictionlogger = logging.getLogger('BumpPredictionLogger-%s'%filename_suffix)
-    bumpPredictionlogger.setLevel(logging.INFO)
+    TestBumpPredictionLogger = logging.getLogger('TestBumpPredictionLogger-%s'%filename_suffix)
+    TestBumpPredictionLogger.setLevel(logging.INFO)
     bumpfh = logging.FileHandler(IMG_DIR + os.sep + 'bump_predictions-%s.log'%filename_suffix, mode='w')
     bumpfh.setFormatter(logging.Formatter('%(message)s'))
     bumpfh.setLevel(logging.INFO)
-    bumpPredictionlogger.addHandler(bumpfh)
-    bumpPredictionlogger.info('#ID:Actual:Predicted')
+    TestBumpPredictionLogger.addHandler(bumpfh)
+    TestBumpPredictionLogger.info('#ID:Actual:Predicted:Correct?')
 
-    accuracy_logger = logging.getLogger('AccuracyLogger-%s'%filename_suffix)
-    accuracy_logger.setLevel(logging.INFO)
+    SummaryLogger = logging.getLogger('AccuracyLogger-%s'%filename_suffix)
+    SummaryLogger.setLevel(logging.INFO)
     accuracyFH = logging.FileHandler(IMG_DIR + os.sep + 'accuracy-%s.log'%filename_suffix, mode='w')
     accuracyFH.setFormatter(logging.Formatter('%(message)s'))
     accuracyFH.setLevel(logging.INFO)
-    accuracy_logger.addHandler(accuracyFH)
-    accuracy_logger.info('#Epoch;Non-collision Accuracy;Non-collision Accuracy(Soft);Collision Accuracy;' +
+    SummaryLogger.addHandler(accuracyFH)
+    SummaryLogger.info('#Epoch;Non-collision Accuracy;Non-collision Accuracy(Soft);Collision Accuracy;' +
                          'Collision Accuracy (Soft);Loss (Non-collision); Loss (collision); Preci-NC-L;Preci-NC-S;Preci-NC-R;;' +
                          'Rec-NC-L;Rec-NC-S;Rec-NC-R;;Preci-C-L;Preci-C-S;Preci-C-R;;Rec-C-L;Rec-C-S;Rec-C-R;')
 
-    return predictionlogger, bumpPredictionlogger, accuracy_logger
+    return {'test-col-logger':TestBumpPredictionLogger, 'test-noncol-logger':predictionlogger, 'summary-logger':SummaryLogger,
+            'train-logger':trainPredictionLogger, 'valid-logger':validPredictionlogger}
 
 
 def test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
@@ -273,11 +295,17 @@ def test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
         for pred, act in zip(predicted_labels, actual_labels):
             pred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
             act_string = ''.join([str(int(a)) + ',' for a in act.tolist()])
-            predictionlogger.info('%d:%s:%s', test_image_index, act_string, pred_string)
+            is_correct = np.argmax(pred)==np.argmax(act)
+            TestPredictionLogger.info('%d:%s:%s:%s', test_image_index, act_string, pred_string,is_correct)
+
             if step < 5:
                 logger.debug('%d:%s:%s', test_image_index, act_string, pred_string)
             test_image_index += 1
-        predictionlogger.info('\n')
+
+        TestPredictionLogger.info('\n')
+
+    print('\t\tAverage test accuracy: %.5f ' % np.mean(test_accuracy))
+    print('\t\tAverage test accuracy(soft): %.5f' % np.mean(soft_test_accuracy))
 
     if include_bump_data:
         for step in range(test_bump_dataset_size // config.BATCH_SIZE):
@@ -300,18 +328,23 @@ def test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
                 all_bump_img_ids = np.append(all_bump_img_ids, bump_test_ids, axis=0)
                 all_bump_images = np.append(all_bump_images, bump_test_images, axis=0)
 
+        print('\t\tAverage bump test accuracy: %.5f ' % np.mean(bump_test_accuracy))
+        print('\t\tAverage bump test (soft) accuracy: %.5f ' % np.mean(bump_soft_accuracy))
+
+
         if step < 5:
             logger.debug('Test Predictions (Collisions)')
         test_image_index = 0
         for pred, act in zip(all_bump_predictions, all_bump_labels):
             bpred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
             bact_string = ''.join([str(int(a)) + ',' for a in act.tolist()])
-            bumpPredictionlogger.info('%d:%s:%s', test_image_index, bact_string, bpred_string)
+            is_correct = np.argmin(pred)==np.argmin(act)
+            TestBumpPredictionLogger.info('%d:%s:%s:%s', test_image_index, bact_string, bpred_string,is_correct)
             if step < 5:
                 logger.debug('%d:%s:%s', test_image_index, bact_string, bpred_string)
             test_image_index += 1
 
-        bumpPredictionlogger.info('\n')
+        TestBumpPredictionLogger.info('\n')
 
         test_col_precision = models_utils.precision_multiclass(all_bump_predictions, all_bump_labels,
                                                                use_argmin=True,
@@ -319,10 +352,17 @@ def test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
         test_col_recall = models_utils.recall_multiclass(all_bump_predictions, all_bump_labels, use_argmin=True,
                                                          max_thresh=max_thresh, min_thresh=min_thresh)
 
+        print('\t\tAverage test bump precision: %s', test_col_precision)
+        print('\t\tAverage test bump recall: %s', test_col_recall)
+
+
     test_noncol_precision = models_utils.precision_multiclass(all_predictions, all_labels, use_argmin=False,
                                                               max_thresh=max_thresh, min_thresh=min_thresh)
     test_noncol_recall = models_utils.recall_multiclass(all_predictions, all_labels, use_argmin=False,
                                                         max_thresh=max_thresh, min_thresh=min_thresh)
+
+    print('\t\tAverage test precision: %s', test_noncol_precision)
+    print('\t\tAverage test recall: %s', test_noncol_recall)
 
     predicted_hard_ids_sorted, predicted_bump_hard_ids_sorted = {}, {}
     predicted_hard_ids_sorted_best, predicted_bump_hard_ids_sorted_best = {}, {}
@@ -383,7 +423,9 @@ def test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
     return test_results
 
 
-def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
+def train_with_non_collision(sess,
+                             tf_images,          tf_labels,           dataset_size,
+                             tf_valid_images,    tf_valid_labels,     valid_dataset_size,
                              tf_test_images,     tf_test_labels,      tf_test_img_ids,      test_dataset_size,
                              tf_bump_test_images,tf_bump_test_labels, tf_bump_test_img_ids, bump_test_dataset_size,
                              n_epochs, test_interval, sub_folder,include_bump_test_data):
@@ -407,6 +449,7 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
     :param filename_suffix:
     :return:
     '''
+    global TrainLogger, ValidLogger
 
     train_results = {}
     min_noncol_loss = 10000
@@ -420,11 +463,12 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
     inc_noncol_gstep = inc_gstep(noncol_global_step)
 
     tf_logits = logits(tf_images, is_training=True)
-    tf_loss = calculate_loss_sigmoid(tf_logits, tf_labels)
+    tf_loss = calculate_loss(tf_logits, tf_labels, weigh_by_frequency=True)
 
     tf_optimize, tf_mom_update_ops, tf_grads_and_vars = cnn_optimizer.optimize_model_naive(tf_loss, noncol_global_step, collision=False)
 
     tf_train_predictions = predictions_with_inputs(tf_images)
+    tf_valid_predictions = predictions_with_inputs(tf_valid_images)
     tf_test_predictions = predictions_with_inputs(tf_test_images)
 
     if include_bump_test_data:
@@ -446,7 +490,7 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
         # ============================================================================
         # Training Phase
         # ============================================================================
-        for step in range(config.FACTOR_OF_TRAINING_TO_USE * dataset_size // config.BATCH_SIZE):
+        for step in range( int(config.FACTOR_OF_TRAINING_TO_USE * dataset_size) // config.BATCH_SIZE):
 
             l1, _,_, pred, train_labels = sess.run([tf_loss, tf_optimize, tf_mom_update_ops, tf_train_predictions, tf_labels])
             avg_loss.append(l1)
@@ -459,6 +503,12 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
                 for pred, lbl in zip(pred, train_labels):
                     logger.debug('\t%s;%s', pred, lbl)
 
+            if step < 10:
+                for pred_item, label_item in zip(pred,train_labels):
+                    is_currect = np.argmax(pred_item) == np.argmax(label_item)
+                    TrainLogger.info('%s:%s:%s',pred_item,label_item,is_currect)
+
+        print_start_of_new_input_pipline_to_some_logger(TrainLogger,'================== END ==========================')
         # ============================================================================
         # Calculations related to decaying learning rate
         # ============================================================================
@@ -480,6 +530,19 @@ def train_with_non_collision(sess,tf_images,tf_labels,dataset_size,
         # Testing Phase
         # ============================================================================
         if (epoch + 1) % test_interval == 0:
+            avg_valid_accuracy = []
+            for step in range(valid_dataset_size // config.BATCH_SIZE):
+                v_pred, v_labels = sess.run(
+                    [tf_valid_predictions, tf_valid_labels])
+                avg_valid_accuracy.append(
+                    models_utils.accuracy(v_pred, v_labels, use_argmin=False)
+                )
+                for pred_item, label_item in zip(v_pred,v_labels):
+                    is_currect = np.argmax(pred_item) == np.argmax(label_item)
+                    ValidLogger.info('%s:%s:%s',pred_item,label_item,is_currect)
+
+            print_start_of_new_input_pipline_to_some_logger(ValidLogger, 'Valid Accuracy For Above: %.3f' % np.mean(avg_valid_accuracy))
+
             test_results = test_the_model(sess, tf_test_img_ids, tf_test_images,tf_test_labels,
                                           tf_test_predictions, test_dataset_size,
                                           tf_bump_test_img_ids, tf_bump_test_images, tf_bump_test_labels,
@@ -573,7 +636,7 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
         # ============================================================================
         # Training Phase
         # ============================================================================
-        for step in range(config.FACTOR_OF_TRAINING_TO_USE * dataset_size // config.BATCH_SIZE ):
+        for step in range(int(config.FACTOR_OF_TRAINING_TO_USE * dataset_size) // config.BATCH_SIZE ):
             l1, _,_, pred, train_labels = sess.run([tf_loss, tf_optimize, tf_mom_update_ops, tf_train_predictions, tf_labels])
             avg_loss.append(l1)
             avg_train_accuracy.append(
@@ -637,27 +700,39 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
 
     return train_results, test_results
 
-def print_start_of_new_input_pipline_to_loggers(input_description):
-    global predictionlogger, bumpPredictionlogger, accuracy_logger
+def print_start_of_new_input_pipline_to_all_loggers(input_description):
+    global TestPredictionLogger, TestBumpPredictionLogger, SummaryLogger
 
-    predictionlogger.info('='*80)
-    predictionlogger.info(input_description)
-    predictionlogger.info('=' * 80)
+    TrainLogger.info('=' * 80)
+    TrainLogger.info(input_description)
+    TrainLogger.info('=' * 80)
 
-    bumpPredictionlogger.info('='*80)
-    bumpPredictionlogger.info(input_description)
-    bumpPredictionlogger.info('=' * 80)
+    ValidLogger.info('=' * 80)
+    ValidLogger.info(input_description)
+    ValidLogger.info('=' * 80)
 
-    accuracy_logger.info('=' * 80)
-    accuracy_logger.info(input_description)
-    accuracy_logger.info('=' * 80)
+    TestPredictionLogger.info('='*80)
+    TestPredictionLogger.info(input_description)
+    TestPredictionLogger.info('=' * 80)
 
+    TestBumpPredictionLogger.info('='*80)
+    TestBumpPredictionLogger.info(input_description)
+    TestBumpPredictionLogger.info('=' * 80)
+
+    SummaryLogger.info('=' * 80)
+    SummaryLogger.info(input_description)
+    SummaryLogger.info('=' * 80)
+
+def print_start_of_new_input_pipline_to_some_logger(logger, input_description):
+
+    logger.info('=' * 80)
+    logger.info(input_description)
+    logger.info('=' * 80)
 
 # =================================================================
 # Loggers
 # =================================================================
 
-predictionlogger, bumpPredictionlogger, accuracy_logger = None, None, None
 sess = None
 
 def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir, test_interval, include_bump_optimize):
@@ -673,43 +748,12 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
     '''
     global sess,output_activation,min_thresh,max_thresh
 
-    dataset_filenames = {'train_dataset':['..' + os.sep + 'data_indoor_1_1000' + os.sep +
-                                       'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords'%i for i in range(3)] +
-                                      ['..' + os.sep + 'data_sandbox_1000' + os.sep +
-                                       'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords'%i for i in
-                                       range(3)] +
-                                         ['..' + os.sep + 'data_grande_salle_1000' + os.sep +
-                                          'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
-                                          range(3)],
-                      'train_bump_dataset': ['..' + os.sep + 'data_indoor_1_bump_200' + os.sep +
-                                        'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
-                                        range(3)] +
-                                       ['..' + os.sep + 'data_sandbox_bump_200' + os.sep +
-                                        'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
-                                        range(3)] +
-                                            ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep +
-                                        'data-chunks-chronological' + os.sep + 'data-chunk-%d.tfrecords' % i for i in
-                                        range(3)],
-                      'test_dataset': ['..' + os.sep + 'data_indoor_1_1000' + os.sep +
-                                       'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
-                                      ['..' + os.sep + 'data_sandbox_1000' + os.sep +
-                                       'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
-                                         ['..' + os.sep + 'data_grande_salle_1000' + os.sep +
-                                          'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'],
-                      'test_bump_dataset': ['..' + os.sep + 'data_indoor_1_bump_200' + os.sep +
-                                        'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords' ] +
-                                       ['..' + os.sep + 'data_sandbox_bump_200' + os.sep +
-                                        'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords'] +
-                                            ['..' + os.sep + 'data_grande_salle_bump_200' + os.sep +
-                                        'data-chunks-chronological' + os.sep + 'data-chunk-3.tfrecords']
-                      }
+    if include_bump_optimize:
+        dataset_filenames, dataset_sizes = dataset_name_factory.old_get_col_noncol_train_and_col_noncol_test_data()
+    else:
+        dataset_filenames, dataset_sizes = dataset_name_factory.new_get_noncol_train_data_col_noncol_test_data()
 
-    dataset_sizes = {'train_dataset':[250 for _ in range(9)],
-                     'train_bump_dataset':[50 for _ in range(9)],
-                     'test_dataset':[250,250,250],
-                     'test_bump_dataset':[50,50,50]}
-
-    for di in range(len(dataset_filenames['train_dataset'])):
+    for di in range(len(dataset_filenames['train_dataset'])-1,len(dataset_filenames['train_dataset'])):
         tf.reset_default_graph()
         sess = tf.InteractiveSession(config=configp)
         with sess.as_default():
@@ -718,7 +762,7 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
             cnn_variable_initializer.build_tensorflw_variables_naive(separate_collision_momentum=True)
             models_utils.set_from_main(sess, logger)
 
-            used_data_percentage = int((di+1)*100.0/9.0)
+            used_data_percentage = int((di+1)*100.0/len(dataset_filenames['train_dataset']))
             dataset_filenames_chunk = dataset_filenames['train_dataset'][:di+1]
             bump_dataset_filenames_chunk = dataset_filenames['train_bump_dataset'][:di + 1]
             dsize = sum(dataset_sizes['train_dataset'][:di+1])
@@ -741,6 +785,10 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
                     dataset_filenames_chunk, config.BATCH_SIZE, shuffle=True,
                     training_data=True, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
+                tf_valid_img_ids, tf_valid_images, tf_valid_labels = models_utils.build_input_pipeline(
+                    dataset_filenames['valid_dataset'], config.BATCH_SIZE, shuffle=True,
+                    training_data=True, use_opposite_label=False, inputs_for_sdae=False,rand_valid_direction_for_bump=False)
+                validdsize = sum(dataset_sizes['valid_dataset'])
 
             tf_test_img_ids, tf_test_images, tf_test_labels = models_utils.build_input_pipeline(dataset_filenames['test_dataset'],
                                                                                                 config.BATCH_SIZE,
@@ -783,9 +831,9 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 col_precision_string = ''.join(['%.3f;' % test_col_precision[pi] for pi in range(3)])
                 col_recall_string = ''.join(['%.3f;' % test_col_recall[ri] for ri in range(3)])
 
-                print_start_of_new_input_pipline_to_loggers('trained_with_%d_data' % used_data_percentage)
+                print_start_of_new_input_pipline_to_all_loggers('trained_with_%d_data' % used_data_percentage)
 
-                accuracy_logger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', n_epochs, np.mean(test_accuracy),
+                SummaryLogger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', n_epochs, np.mean(test_accuracy),
                                      np.mean(soft_test_accuracy),
                                      np.mean(bump_test_accuracy), np.mean(bump_soft_accuracy), np.mean(avg_loss),
                                      -1.0,
@@ -798,6 +846,7 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 min_thresh = 0.4
                 train_results, test_results = train_with_non_collision(
                     sess, tf_images, tf_labels, dsize,
+                    tf_valid_images,tf_valid_labels, validdsize,
                     tf_test_images, tf_test_labels, tf_test_img_ids, testdsize,
                     tf_bump_test_images, tf_bump_test_labels, tf_bump_test_img_ids, bumptestdsize,
                     n_epochs, test_interval, main_dir + os.sep + 'trained_with_%d_data' % used_data_percentage,True
@@ -819,9 +868,9 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                 col_precision_string = ''.join(['%.3f;' % test_col_precision[pi] for pi in range(3)])
                 col_recall_string = ''.join(['%.3f;' % test_col_recall[ri] for ri in range(3)])
 
-                print_start_of_new_input_pipline_to_loggers('trained_with_%d_data' % used_data_percentage)
+                print_start_of_new_input_pipline_to_all_loggers('trained_with_%d_data' % used_data_percentage)
 
-                accuracy_logger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', n_epochs, np.mean(test_accuracy),
+                SummaryLogger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', n_epochs, np.mean(test_accuracy),
                                      np.mean(soft_test_accuracy),
                                      np.mean(bump_test_accuracy), np.mean(bump_soft_accuracy), np.mean(avg_loss),
                                      -1,
@@ -829,6 +878,7 @@ def train_using_different_fractions_of_training_data(configp, n_epochs, main_dir
                                      col_recall_string)
 
             sess.close()
+
 
 def train_using_all_data():
 
@@ -892,13 +942,14 @@ def train_using_all_data():
         col_precision_string = ''.join(['%.3f;' % test_col_precision[pi] for pi in range(3)])
         col_recall_string = ''.join(['%.3f;' % test_col_recall[ri] for ri in range(3)])
 
-        accuracy_logger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', epoch, np.mean(test_accuracy),
+        SummaryLogger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s', epoch, np.mean(test_accuracy),
                              np.mean(soft_test_accuracy),
                              np.mean(bump_test_accuracy), np.mean(bump_soft_accuracy), np.mean(avg_loss),
                              np.mean(avg_bump_loss),
                              noncol_precision_string, noncol_recall_string, col_precision_string, col_recall_string)
 
 
+TestPredictionLogger, TestBumpPredictionLogger, TrainLogger, ValidLogger, SummaryLogger = None, None, None, None, None
 if __name__ == '__main__':
 
     try:
@@ -917,10 +968,15 @@ if __name__ == '__main__':
     if IMG_DIR and not os.path.exists(IMG_DIR):
         os.mkdir(IMG_DIR)
 
-    predictionlogger, bumpPredictionlogger, accuracy_logger = setup_loggers('main')
+    logger_dict = setup_loggers('main')
+    TestPredictionLogger = logger_dict['test-noncol-logger']
+    TestBumpPredictionLogger = logger_dict['test-col-logger']
+    TrainLogger = logger_dict['train-logger']
+    ValidLogger = logger_dict['valid-logger']
+    SummaryLogger = logger_dict['summary-logger']
 
     configp = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
     configp.gpu_options.per_process_gpu_memory_fraction = 0.9
 
-    test_interval = 25
-    train_using_different_fractions_of_training_data(configp, 50, IMG_DIR,test_interval,include_bump_optimize=True)
+    test_interval = 5
+    train_using_different_fractions_of_training_data(configp, 50, IMG_DIR,test_interval,include_bump_optimize=False)

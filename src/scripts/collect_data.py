@@ -122,9 +122,10 @@ def callback_odom(msg):
 
     pose_tol = 0.001
     ori_tol = 0.001
-    if (abs(x - prevX) < pose_tol and abs(y - prevY) < pose_tol and abs(z - prevZ) < pose_tol
-        and abs(xo - prevXO) < ori_tol and abs(yo - prevYO) < ori_tol and abs(zo - prevZO) < ori_tol and abs(
-            wo - prevWO) < ori_tol):
+
+    # and abs(xo - prevXO) < ori_tol and abs(yo - prevYO) < ori_tol and abs(zo - prevZO) < ori_tol and abs(
+    #        wo - prevWO) < ori_tol)
+    if (abs(x - prevX) < pose_tol and abs(y - prevY) < pose_tol and abs(z - prevZ) < pose_tol):
         isMoving = False
     else:
         isMoving = True

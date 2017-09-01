@@ -126,15 +126,16 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
             print(image.get_shape().as_list())
         # not required anymore
 
-        gather_indices = [[i] for i in range(0,24)] + [[i] for i in range(56,72)] + [[i] for i in range(104,128)]
-        tr_image = tf.transpose(image,perm=[1,0,2])
-        print('transpose', tr_image.get_shape().as_list())
-        tr_image = tf.gather_nd(tr_image,gather_indices)
-        print('transpose gather',tr_image.get_shape().as_list())
-        image = tf.transpose(tr_image,perm=[1,0,2])
+        #gather_indices = [[i] for i in range(0,24)] + [[i] for i in range(56,72)] + [[i] for i in range(104,128)]
+        #tr_image = tf.transpose(image,perm=[1,0,2])
+        #print('transpose', tr_image.get_shape().as_list())
+        #tr_image = tf.gather_nd(tr_image,gather_indices)
+        #print('transpose gather',tr_image.get_shape().as_list())
+        #image = tf.transpose(tr_image,perm=[1,0,2])
 
-        print('after transpose',image.get_shape().as_list())
-        #image = tf.image.resize_images(image,[config.TF_INPUT_AFTER_RESIZE[0],config.TF_INPUT_AFTER_RESIZE[1]])
+
+        #print('after transpose',image.get_shape().as_list())
+        image = tf.image.resize_images(image,[config.TF_INPUT_AFTER_RESIZE[0],config.TF_INPUT_AFTER_RESIZE[1]])
 
         label = tf.cast(features[config.FEAT_LABEL], tf.int32)
         ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
