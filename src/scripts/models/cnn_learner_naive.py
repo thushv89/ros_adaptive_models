@@ -573,7 +573,7 @@ def train_with_non_collision(sess,
     # Persisting data
     # ============================================================================
     logger.info('Saving CNN Model')
-    cnn_model_visualizer.save_cnn_hyperparameters(sub_folder, kernel_size_dict, stride_dict,
+    cnn_model_visualizer.save_cnn_hyperparameters(sub_folder, kernel_size_dict, stride_dict, scope_list,
                                                   'hyperparams_%d.pickle' %(epoch))
     cnn_model_visualizer.save_cnn_weights_naive(sub_folder, sess, 'cnn_model_%d.ckpt' %(epoch))
 
@@ -700,7 +700,7 @@ def train_with_one_non_collision_collision_combination(sess,tf_images,tf_labels,
     # Persisting data
     # ============================================================================
     logger.info('Saving CNN Model')
-    cnn_model_visualizer.save_cnn_hyperparameters(sub_folder, kernel_size_dict, stride_dict,
+    cnn_model_visualizer.save_cnn_hyperparameters(sub_folder, kernel_size_dict, stride_dict, scope_list
                                                   'hyperparams_%d.pickle' %(epoch))
     cnn_model_visualizer.save_cnn_weights_naive(sub_folder, sess, 'cnn_model_%d.ckpt' %(epoch))
 

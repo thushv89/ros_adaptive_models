@@ -112,9 +112,9 @@ else:
             'out': [FC1_WEIGHTS, TF_NUM_CLASSES]
         }
 
-        TF_ANG_VAR_SHAPES_MULTIPLE = {'conv1': [4, 4, 3, 12], 'pool1': [1, 2, 2, 1], 'conv2': [4, 4, 36, 24],
-                                      'pool2': [1, 4, 4, 1],
-                                      'conv3': [4, 4, 72, 24], 'pool3': [1, 2, 2, 1], 'conv4': [6, 6, 72, 24],
+        TF_ANG_VAR_SHAPES_MULTIPLE = {'conv1': [4, 4, 3, 12], 'pool1': [1, 4, 4, 1], 'conv2': [4, 4, 36, 24],
+                                      'pool2': [1, 3, 3, 1],
+                                      'conv3': [4, 4, 72, 24], 'pool3': [1, 3, 3, 1], 'conv4': [4, 4, 72, 24],
                                       'conv5': [6, 6, 72, 24],
                                       'fc1': [fc_h * fc_w * 72, FC1_WEIGHTS // 3],
                                       'out': [FC1_WEIGHTS, 1]}
