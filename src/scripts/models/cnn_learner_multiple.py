@@ -76,7 +76,22 @@ def logits(tf_inputs,direction=None):
                                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                         config.TF_BIAS_STR)
                                     logger.info('\t\t\tConvolution %s (%s)', di, weight.get_shape().as_list())
-                                    h_per_di.append(models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,activation,name='hidden'))
+                                    if not config.USE_DILATION:
+                                        h_per_di.append(
+                                            models_utils.activate(
+                                                tf.nn.conv2d(
+                                                    tf_inputs,weight,strides=config.TF_ANG_STRIDES[scope],padding='SAME')+bias,
+                                                activation,name='hidden')
+                                        )
+                                    else:
+
+                                        h_per_di.append(
+                                            models_utils.activate(
+                                                tf.nn.convolution(tf_inputs,weight,
+                                                                  dilation_rate=config.TF_DILATION[scope],padding='SAME') + bias,
+                                            activation, name='dilated-hidden')
+                                        )
+
                             h = tf.concat(values=h_per_di,axis=3)
                             logger.info('\t\tConcat Shape (%s)', h.get_shape().as_list())
                         else:
@@ -86,8 +101,22 @@ def logits(tf_inputs,direction=None):
                                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                         config.TF_BIAS_STR)
                                     logger.info('\t\t\tConvolution %s (%s)', di, weight.get_shape().as_list())
-                                    h_per_di.append(models_utils.activate(tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias, activation,
-                                           name='hidden'))
+
+                                    if not config.USE_DILATION:
+                                        h_per_di.append(
+                                            models_utils.activate(
+                                                tf.nn.conv2d(h, weight, strides=config.TF_ANG_STRIDES[scope], padding='SAME') + bias,
+                                                activation, name='hidden')
+                                        )
+                                    else:
+                                        h_per_di.append(
+                                            models_utils.activate(
+                                                tf.nn.convolution(h,weight, padding='SAME',
+                                                                  dilation_rate=config.TF_DILATION[scope]) + bias,
+                                                activation, name='dilated-hidden'
+                                            )
+                                        )
+
                             h = tf.concat(values=h_per_di,axis=3)
                             logger.info('\t\tConcat Shape (%s)', h.get_shape().as_list())
                     elif 'pool' in scope:
@@ -179,15 +208,19 @@ def test_the_model(sess,tf_test_labels,
             all_predictions = np.append(all_predictions, predicted_labels, axis=0)
             all_labels = np.append(all_labels, actual_labels, axis=0)
 
-        if step < 5:
-            logger.debug('Test Predictions (Non-Collisions)')
-        for pred, act in zip(predicted_labels, actual_labels):
-            pred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
-            act_string = ''.join([str(int(a)) + ',' for a in act.tolist()])
-            TestLogger.info('%d:%s:%s', test_image_index, act_string, pred_string)
-            if step < 5:
-                logger.debug('%d:%s:%s', test_image_index, act_string, pred_string)
-            test_image_index += 1
+        if step < 10:
+            for pred, act in zip(predicted_labels, actual_labels):
+                pred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
+                act_string = ''.join([str(int(a)) + ',' for a in act.tolist()])
+                is_correct = np.argmax(pred) == np.argmax(act)
+                TestLogger.info('%s:%s:%s', act_string, pred_string,is_correct)
+                if step < 5:
+                    logger.debug('%s:%s:%s', act_string, pred_string,is_correct)
+
+    print_start_of_new_input_pipline_to_some_logger(
+        TestLogger,
+        'Accuracy for Above: %.3f (Hard) %.3f (Soft)' % (np.mean(test_accuracy), np.mean(soft_test_accuracy))
+    )
 
     test_noncol_precision = models_utils.precision_multiclass(all_predictions, all_labels, use_argmin=False,
                                                               max_thresh=max_thresh, min_thresh=min_thresh)
@@ -205,6 +238,16 @@ def test_the_model(sess,tf_test_labels,
     all_bump_predictions, all_bump_labels = None, None
     for step in range(dataset_size_dict['test_bump_dataset'] // batch_size):
         bump_predicted_labels, bump_actual_labels = sess.run([tf_bump_test_predictions, tf_bump_test_labels])
+
+        if step < 10:
+            for pred, act in zip(bump_predicted_labels, bump_actual_labels):
+                bpred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
+                bact_string = ''.join([str(int(a)) + ',' for a in act.tolist()])
+                is_correct = np.argmin(pred)==np.argmin(act)
+                TestBumpLogger.info('%s:%s:%s', bact_string, bpred_string,is_correct)
+                if step < 5:
+                    logger.debug('%s:%s:%s', bact_string, bpred_string, is_correct)
+
         bump_test_accuracy.append(
             models_utils.accuracy(bump_predicted_labels, bump_actual_labels, use_argmin=True))
         bump_soft_accuracy.append(
@@ -218,16 +261,10 @@ def test_the_model(sess,tf_test_labels,
             all_bump_predictions = np.append(all_bump_predictions, bump_predicted_labels, axis=0)
             all_bump_labels = np.append(all_bump_labels, bump_actual_labels, axis=0)
 
-    if step < 5:
-        logger.debug('Test Predictions (Collisions)')
-    test_image_index = 0
-    for pred, act in zip(all_bump_predictions, all_bump_labels):
-        bpred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
-        bact_string = ''.join([str(int(a)) + ',' for a in act.tolist()])
-        TestBumpLogger.info('%d:%s:%s', test_image_index, bact_string, bpred_string)
-        if step < 5:
-            logger.debug('%d:%s:%s', test_image_index, bact_string, bpred_string)
-        test_image_index += 1
+    print_start_of_new_input_pipline_to_some_logger(
+        TestBumpLogger,
+        'Accuracy for Above: %.3f (Hard) %.3f (Soft)' % (np.mean(bump_test_accuracy), np.mean(bump_soft_accuracy))
+    )
 
     test_col_precision = models_utils.precision_multiclass(all_bump_predictions, all_bump_labels, use_argmin=True,
                                                               max_thresh=max_thresh, min_thresh=min_thresh)
@@ -440,7 +477,6 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
     coord.join(threads)
 
 
-
 def loop_through_by_using_every_dataset_as_holdout_dataset(main_dir):
 
     hold_out_list = ['apartment-my1-2000','apartment-my2-2000','apartment-my3-2000',
@@ -455,6 +491,15 @@ def loop_through_by_using_every_dataset_as_holdout_dataset(main_dir):
         print_start_of_new_input_pipline_to_all_loggers('Using %s as holdout set'%hold_name)
 
         dataset_filenames, dataset_sizes = dataset_name_factory.new_get_train_test_data_with_holdout(hold_index)
+
+        with open(sub_dir + os.sep + 'dataset_filenames_and_sizes.txt','w') as f:
+            for k,v in dataset_filenames.items():
+                f.write(str(k)+":"+str(v))
+                f.write('\n')
+
+            for k,v in dataset_sizes.items():
+                f.write(str(k)+":"+str(v))
+                f.write('\n')
 
         tf.reset_default_graph()
         configp = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
@@ -472,7 +517,7 @@ def loop_through_by_using_every_dataset_as_holdout_dataset(main_dir):
             logger.info('Saving CNN Model')
             cnn_model_visualizer.save_cnn_hyperparameters(sub_dir, kernel_size_dict, stride_dict,
                                                           scope_list, 'hyperparams-final.pickle')
-            cnn_model_visualizer.save_cnn_weights_naive(sub_dir, sess, 'cnn-model-final.ckpt')
+            cnn_model_visualizer.save_cnn_weights_multiple(sub_dir, sess, 'cnn-model-final.ckpt')
 
             sess.close()
 

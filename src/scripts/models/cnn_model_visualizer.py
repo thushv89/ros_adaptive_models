@@ -97,8 +97,9 @@ def save_cnn_weights_multiple(main_dir, sess, model_filepath):
                 weights_name = scope + config.TF_SCOPE_DIVIDER + di + config.TF_SCOPE_DIVIDER + config.TF_WEIGHTS_STR
                 bias_name = scope + config.TF_SCOPE_DIVIDER + di + config.TF_SCOPE_DIVIDER + config.TF_BIAS_STR
                 with tf.variable_scope(scope,reuse=True):
-                    var_dict[weights_name] = tf.get_variable(config.TF_WEIGHTS_STR)
-                    var_dict[bias_name] = tf.get_variable(config.TF_BIAS_STR)
+                    with tf.variable_scope(di, reuse=True):
+                        var_dict[weights_name] = tf.get_variable(config.TF_WEIGHTS_STR)
+                        var_dict[bias_name] = tf.get_variable(config.TF_BIAS_STR)
         elif 'fc' in scope or 'out' in scope:
             with tf.variable_scope(scope,reuse=True):
                 for di in all_directions:

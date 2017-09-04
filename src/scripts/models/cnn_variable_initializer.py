@@ -74,7 +74,7 @@ def build_tensorflw_variables_detached():
         print([v.name for v in tf.global_variables()])
 
 
-def build_tensorflw_variables_naive(separate_collision_momentum):
+def build_tensorflw_variables_naive():
     '''
     Build the required tensorflow variables to populate the VGG-16 model
     All are initialized with zeros (initialization doesn't matter in this case as we assign exact values later)
@@ -92,7 +92,8 @@ def build_tensorflw_variables_naive(separate_collision_momentum):
                 # the variable exists, you will get a ValueError saying the variable exists
 
                 try:
-                    if 'pool' not in scope:
+
+                    if 'pool' not in scope and 'out' not in scope:
                         tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
                                                   initializer=tf.contrib.layers.xavier_initializer())
                         tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
@@ -104,13 +105,24 @@ def build_tensorflw_variables_naive(separate_collision_momentum):
                         with tf.variable_scope(config.TF_BIAS_STR):
                             tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
                                             initializer = tf.constant_initializer(0,dtype=tf.float32))
-                        if separate_collision_momentum:
-                            with tf.variable_scope(config.TF_WEIGHTS_STR):
-                                tf.get_variable(config.TF_COL_MOMENTUM_STR, shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
-                                                initializer=tf.constant_initializer(0, dtype=tf.float32))
-                            with tf.variable_scope(config.TF_BIAS_STR):
-                                tf.get_variable(config.TF_COL_MOMENTUM_STR, shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
-                                                initializer=tf.constant_initializer(0, dtype=tf.float32))
+
+                    if 'out' in scope:
+                        for di in ['left','straight','right']:
+                            with tf.variable_scope(di):
+                                tf.get_variable(config.TF_WEIGHTS_STR, shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
+                                                initializer=tf.contrib.layers.xavier_initializer())
+                                tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
+                                                initializer=tf.random_uniform_initializer(minval=-0.01, maxval=+0.01,
+                                                                                          dtype=tf.float32))
+
+                                with tf.variable_scope(config.TF_WEIGHTS_STR):
+                                    tf.get_variable(config.TF_MOMENTUM_STR, shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope],
+                                                    initializer=tf.constant_initializer(0, dtype=tf.float32))
+                                with tf.variable_scope(config.TF_BIAS_STR):
+                                    tf.get_variable(config.TF_MOMENTUM_STR,
+                                                    shape=config.TF_ANG_VAR_SHAPES_NAIVE[scope][-1],
+                                                    initializer=tf.constant_initializer(0, dtype=tf.float32))
+
 
                 except ValueError as e:
                     logger.critical(e)

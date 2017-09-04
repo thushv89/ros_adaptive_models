@@ -71,7 +71,7 @@ def dump_to_tfrecord_suffled(data_folder, data_save_dir, drive_direct_dict, imag
 
 def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
                                image_ids,image_fname_prefix, max_instances_per_file=None,
-                               shuffle=False, save_images_for_testing=False):
+                               shuffle=False, augment_data=False, save_images_for_testing=False):
     '''
     Converts a dataset to tfrecords. Write several tfrecords by breaking the dataset into number of chunks
     :param data_folder:
@@ -125,6 +125,28 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
         }))
         writer.write(example.SerializeToString())
         items_written_per_chunk += 1
+
+        # save a flipped version of the image
+        if augment_data:
+            flip_direction = drive_direct_dict[img_id]
+            im_mat_flip = np.fliplr(im_mat)
+            if drive_direct_dict[img_id] == 0:
+                flip_direction = 2
+            elif drive_direct_dict[img_id] == 2:
+                flip_direction = 0
+
+            im_raw_flip = im_mat_flip.tostring()
+
+            flip_example = tf.train.Example(features=tf.train.Features(feature={
+                config.FEAT_IMG_ID: _int64_feature(img_id),
+                config.FEAT_IMG_HEIGHT: _int64_feature(rows),
+                config.FEAT_IMG_WIDTH: _int64_feature(cols),
+                config.FEAT_IMG_CH: _int64_feature(ch),
+                config.FEAT_IMG_RAW: _bytes_feature(im_raw_flip),
+                config.FEAT_LABEL: _int64_feature(flip_direction)
+            }))
+            writer.write(flip_example.SerializeToString())
+            items_written_per_chunk += 1
 
         if max_instances_per_file is not None and items_written_per_chunk>=max_instances_per_file:
             logger.info('image-shuffled-part-%d.tfrecords (Size): %d', chunk_index,
@@ -352,7 +374,7 @@ def save_testing_data():
         '.' + os.sep + '..' + os.sep + 'indoor-1-my1-bump-200',
         '.' + os.sep + '..' + os.sep + 'grande_salle-my1-bump-200',
         '.' + os.sep + '..' + os.sep + 'grande_salle-my2-bump-200',
-        '.' + os.sep + '..' + os.sep + 'data_sandbox_bump_200'
+        '.' + os.sep + '..' + os.sep + 'sandbox-bump-200'
     ]
 
     assert len(is_bump_list) == len(data_folders_list), 'Bump List length and Data Folder lenght do not match'
@@ -405,7 +427,9 @@ def save_testing_data():
 
 
         equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
-        file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
+        #file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
+        file_size_stat = dump_to_tfrecord_in_chunks(data_folder,equal_save_dir,img_id_to_direction_dict,equal_img_indices,image_fname_prefix,
+                                                    max_instances_per_file=None,augment_data=True,shuffle=True,save_images_for_testing=True)
 
         with open(equal_save_dir+os.sep+'dataset_sizes.txt','w') as f:
             for k,v in file_size_stat.items():
@@ -427,6 +451,7 @@ if __name__ == '__main__':
     logger.addHandler(fileHandler)
 
     save_testing_data()
+    #save_training_data()
     # Used as Test Data (Should have equal amounts for each direction)
     # =======================================
     '''is_bump_list = [False, True, False, True, False, True]

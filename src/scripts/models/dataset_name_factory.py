@@ -406,8 +406,8 @@ def new_get_train_test_data_with_holdout(hold_out_index):
         'straight': [44, 49, 46, 50, 51, 43, 50,56],
         'right': [18, 16, 17, 15, 15, 18, 15, 12]
                            }
-    test_dataset_sizes_per_dir = [401,369,422,379,344,409,387,277]
-    bump_test_dataset_sizes_per_dir = [66,24,48,42,60,48,48,40]
+    test_dataset_sizes_per_dir = [2406,2214,2532,2274,2064,2454,2322,1662]
+    bump_test_dataset_sizes_per_dir = [396,144,288,252,360,288,288,240]
 
     bump_dataset_names = ['apartment-my1-bump-200','apartment-my2-bump-200','apartment-my3-bump-200',
                      'indoor-1-bump-200','indoor-1-my1-bump-200','grande_salle-my1-bump-200',
@@ -415,7 +415,7 @@ def new_get_train_test_data_with_holdout(hold_out_index):
 
     train_sub_dir = 'data-separated-by-direction-augmented'
     test_sub_dir = 'data-equal'
-    test_dataset_filename = 'image-shuffled.tfrecords'
+    test_dataset_filename = 'data-chunk-0.tfrecords' # (old) 'image-shuffled.tfrecords'
 
     dataset_filenames = {
         'test_dataset': ['..' + os.sep + dataset_names[hold_out_index] + os.sep +
@@ -448,8 +448,8 @@ def new_get_train_test_data_with_holdout(hold_out_index):
 
     dataset_sizes = {'train_dataset': train_size,
                      'valid_dataset': valid_size,
-                     'test_dataset': test_dataset_sizes_per_dir[hold_out_index], # size of sandbox_1000: 247
-                     'test_bump_dataset': bump_test_dataset_sizes_per_dir[hold_out_index]} # size of sandbox_bump_200: 47
+                     'test_dataset': test_dataset_sizes_per_dir[hold_out_index],
+                     'test_bump_dataset': bump_test_dataset_sizes_per_dir[hold_out_index]}
 
     print(dataset_filenames)
     print(dataset_sizes)
