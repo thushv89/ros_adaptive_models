@@ -33,7 +33,16 @@ TF_BIAS_STR = 'bias'
 TF_MOMENTUM_STR = 'CustomMomentum'
 TF_COL_MOMENTUM_STR = 'CustomBumpMomentum'
 TF_SCOPE_DIVIDER = '/'
-TF_NUM_CLASSES = 3
+
+FIVE_WAY_EXPERIMENT = False
+if not FIVE_WAY_EXPERIMENT:
+    TF_NUM_CLASSES = 3
+    TF_DIRECTION_LABELS = ['left','straight','right']
+else:
+    TF_NUM_CLASSES = 5
+    TF_DIRECTION_LABELS = ['hard-left', 'soft-left', 'straight', 'soft-right', 'hard-right']
+    TF_DIRECTION_LABELS_GENERAL = ['left', 'left', 'straight', 'right', 'right']
+
 ENABLE_MASKING = True # drop out logits of zero elements on the one-hot vectors so that they are not optimized for that step
 ENABLE_SOFT_CLASSIFICATION = False # use 0.9 and 0.1 instead of 0 and 1 in the one-hot vectors
 SOFT_NONCOLLISION_LABEL = 0.95

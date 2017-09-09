@@ -776,7 +776,7 @@ def loop_through_by_using_every_dataset_as_holdout_dataset(main_dir,n_epochs):
                 tf_valid_images, tf_valid_labels, validdsize,
                 tf_test_images, tf_test_labels, tf_test_img_ids, testdsize,
                 tf_bump_test_images, tf_bump_test_labels, tf_bump_test_img_ids, bumptestdsize,
-                n_epochs, test_interval, main_dir + os.sep + sub_dir,
+                n_epochs, test_interval, sub_dir,
                 include_bump_test_data=True, use_cross_entropy=True, activation=output_activation
             )
 
@@ -855,9 +855,11 @@ def train_using_all_data():
 TestPredictionLogger, TestBumpPredictionLogger, TrainLogger, ValidLogger, SummaryLogger = None, None, None, None, None
 if __name__ == '__main__':
 
+    memory_frac = 0.9
+
     try:
         opts, args = getopt.getopt(
-            sys.argv[1:], "", ["data-dir="])
+            sys.argv[1:], "", ["data-dir=" ,"memory="])
     except getopt.GetoptError as error:
         print('<filename>.py --data-dir=<dirname>')
         print(error)
@@ -867,6 +869,8 @@ if __name__ == '__main__':
         for opt, arg in opts:
             if opt == '--data-dir':
                 IMG_DIR = str(arg)
+            if opt == '--memory':
+                memory_frac = float(arg)
 
     if IMG_DIR and not os.path.exists(IMG_DIR):
         os.mkdir(IMG_DIR)
@@ -879,7 +883,7 @@ if __name__ == '__main__':
     SummaryLogger = logger_dict['summary-logger']
 
     configp = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
-    configp.gpu_options.per_process_gpu_memory_fraction = 0.9
+    configp.gpu_options.per_process_gpu_memory_fraction = memory_frac
 
     test_interval = 5
     loop_through_by_using_every_dataset_as_holdout_dataset(IMG_DIR,50)

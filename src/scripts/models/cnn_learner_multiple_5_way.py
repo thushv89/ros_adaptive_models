@@ -40,7 +40,7 @@ min_thresh = 0.4
 
 batch_size = 10
 
-kernel_size_dict = config.TF_ANG_VAR_SHAPES_MULTIPLE
+kernel_size_dict = config.TF_ANG_VAR_SHAPES_NAIVE
 stride_dict = config.TF_ANG_STRIDES
 scope_list = config.TF_ANG_SCOPES
 
@@ -61,6 +61,8 @@ def logits(tf_inputs,direction=None):
     '''
     global logger
     logger.info('Defining inference ops ...')
+    direction = config.TF_DIRECTION_LABELS_GENERAL[config.TF_DIRECTION_LABELS.index(direction)]
+
     with tf.name_scope('infer'):
 
             for si, scope in enumerate(config.TF_ANG_SCOPES):
@@ -70,8 +72,7 @@ def logits(tf_inputs,direction=None):
                         logger.info('\t\tConvolution with ReLU activation for %s',scope)
                         if si == 0:
                             h_per_di = []
-                            for di in (config.TF_DIRECTION_LABELS):
-
+                            for di in config.TF_DIRECTION_LABELS_GENERAL:
                                 with tf.variable_scope(di,reuse=True):
                                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                         config.TF_BIAS_STR)
@@ -96,7 +97,7 @@ def logits(tf_inputs,direction=None):
                             logger.info('\t\tConcat Shape (%s)', h.get_shape().as_list())
                         else:
                             h_per_di = []
-                            for di in (config.TF_DIRECTION_LABELS):
+                            for di in config.TF_DIRECTION_LABELS_GENERAL:
                                 with tf.variable_scope(di,reuse=True):
                                     weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                         config.TF_BIAS_STR)
@@ -130,7 +131,7 @@ def logits(tf_inputs,direction=None):
                                 logger.info('\t\tFully-connected with output Logits for %s',scope)
                                 assert config.TF_ANG_VAR_SHAPES_MULTIPLE[scope][0] ==  config.TF_ANG_VAR_SHAPES_MULTIPLE['fc1'][1]*3
                                 h_per_di = []
-                                for di in (config.TF_DIRECTION_LABELS):
+                                for di in config.TF_DIRECTION_LABELS_GENERAL:
                                     with tf.variable_scope(di):
                                         weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                             config.TF_BIAS_STR)
@@ -146,7 +147,7 @@ def logits(tf_inputs,direction=None):
                         elif 'fc' in scope:
                             if scope == config.TF_FIRST_FC_ID:
                                 h_per_di = []
-                                for di in (config.TF_DIRECTION_LABELS):
+                                for di in config.TF_DIRECTION_LABELS_GENERAL:
                                     with tf.variable_scope(di):
                                         weight, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                             config.TF_BIAS_STR)
@@ -308,13 +309,14 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
     tf_grads_and_vars = {}
     tf_train_predictions = {}
 
-    for direction in ['left', 'straight', 'right']:
+    for direction in config.TF_DIRECTION_LABELS:
+
         tf_img_ids[direction], tf_images[direction], tf_labels[direction] = models_utils.build_input_pipeline(
             dataset_filenames_dict['train_dataset'][direction], batch_size, shuffle=True,
             training_data=False, use_opposite_label=False, inputs_for_sdae=False, rand_valid_direction_for_bump=False)
 
         tf_logits[direction] = logits(tf_images[direction], direction)
-        temp = ['left', 'straight', 'right']
+        temp = config.TF_DIRECTION_LABELS
         temp.remove(direction)
 
         tf_bump_logits[direction], tf_bump_loss[direction] = {}, {}
@@ -326,7 +328,8 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
         for opp_direction in temp:
             bump_var_list = []
             for v in tf.global_variables():
-                if opp_direction in v.name and config.TF_MOMENTUM_STR not in v.name:
+                opp_direction_gen = config.TF_DIRECTION_LABELS_GENERAL[config.TF_DIRECTION_LABELS.index(opp_direction)]
+                if opp_direction_gen in v.name and config.TF_MOMENTUM_STR not in v.name:
                     print(v.name)
                     bump_var_list.append(v)
 
@@ -344,14 +347,14 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
 
         var_list = []
         for v in tf.global_variables():
-            if direction in v.name and config.TF_MOMENTUM_STR not in v.name:
+            gen_direction = config.TF_DIRECTION_LABELS_GENERAL[config.TF_DIRECTION_LABELS.index(direction)]
+            if gen_direction in v.name and config.TF_MOMENTUM_STR not in v.name:
                 print(v.name)
                 var_list.append(v)
 
         tf_optimize[direction], tf_grads_and_vars[direction] = cnn_optimizer.optimize_model_naive_no_momentum(
             tf_loss[direction], noncol_global_step, varlist=var_list
         )
-
 
     tf_valid_img_ids, tf_valid_images, tf_valid_labels = models_utils.build_input_pipeline(
         dataset_filenames_dict['valid_dataset'], batch_size, shuffle=True,
@@ -374,7 +377,6 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
 
     tf.global_variables_initializer().run(session=sess)
 
-
     max_valid_accuracy = 0
     n_valid_saturated = 0
     valid_saturate_threshold = 3
@@ -391,13 +393,13 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
         # Training with Non-Bump Data
         for step in range(int(train_fraction*dataset_size_dict['train_dataset']) // batch_size):
 
-            rand_direction = np.random.choice(['left', 'straight', 'right'])
-            temp = ['left', 'straight', 'right']
+            rand_direction = np.random.choice(config.TF_DIRECTION_LABELS)
+            temp = config.TF_DIRECTION_LABELS
             temp.remove(rand_direction)
-            if rand_direction == 'left':
-                new_rand_direction = np.random.choice(temp, p=[0.6, 0.4])
-            elif rand_direction == 'right':
-                new_rand_direction = np.random.choice(temp, p=[0.4, 0.6])
+            if 'left' in rand_direction:
+                new_rand_direction = np.random.choice(temp, p=[0.2, 0.4, 0.2,0.2])
+            elif 'right' in rand_direction:
+                new_rand_direction = np.random.choice(temp, p=[0.2, 0.2, 0.4, 0.2])
             else:
                 new_rand_direction = np.random.choice(temp)
 

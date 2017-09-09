@@ -454,3 +454,60 @@ def new_get_train_test_data_with_holdout(hold_out_index):
     print(dataset_filenames)
     print(dataset_sizes)
     return dataset_filenames, dataset_sizes
+
+
+def new_get_train_test_data_with_holdout_5_way(hold_out_index):
+
+    dataset_names = ['indoor-1-2000','indoor-1-my1-2000','indoor-1-my1-2000']
+
+    assert hold_out_index < len(dataset_names), 'Hold out index should be less than length of dataset folders'
+
+    train_valid_dataset_chunk_count = {
+        'left':[18, 16, 17],
+        'straight': [44, 49, 46],
+        'right': [18, 16, 17]
+                           }
+    test_dataset_sizes_per_dir = [2406,2214,2532]
+    bump_test_dataset_sizes_per_dir = [396,144,288]
+
+    train_sub_dir = 'data-separated-by-direction-augmented'
+    test_sub_dir = 'data-equal'
+    test_dataset_filename = 'data-chunk-0.tfrecords' # (old) 'image-shuffled.tfrecords'
+
+    dataset_filenames = {
+        'test_dataset': ['..' + os.sep + dataset_names[hold_out_index] + os.sep +
+                         test_sub_dir + os.sep + test_dataset_filename],
+        'test_bump_dataset': ['..' + os.sep + bump_dataset_names[hold_out_index] + os.sep +
+                              test_sub_dir + os.sep + test_dataset_filename],
+        'train_dataset': {'left':[], 'straight':[], 'right':[]},
+        'valid_dataset': []
+                         }
+
+    train_size,valid_size = 0,0
+    for data_index in range(len(dataset_names)):
+
+        if data_index == hold_out_index:
+            continue
+
+        for di,direct in enumerate(['left','straight','right']):
+            dataset_filenames['train_dataset'][direct].extend(
+                [
+                    '..'+os.sep+dataset_names[data_index] + os.sep + train_sub_dir +
+                    os.sep + 'image-%d-part-%d.tfrecords' % (di,i) for i in range(train_valid_dataset_chunk_count[direct][data_index])
+                 ]
+            )
+            train_size += 50 * train_valid_dataset_chunk_count[direct][data_index]
+            dataset_filenames['valid_dataset'].append(
+                '..' + os.sep + dataset_names[data_index] + os.sep + train_sub_dir +
+                os.sep + 'image-%d-part-%d.tfrecords' % (di,train_valid_dataset_chunk_count[direct][data_index])
+            )
+            valid_size += 45
+
+    dataset_sizes = {'train_dataset': train_size,
+                     'valid_dataset': valid_size,
+                     'test_dataset': test_dataset_sizes_per_dir[hold_out_index],
+                     'test_bump_dataset': bump_test_dataset_sizes_per_dir[hold_out_index]}
+
+    print(dataset_filenames)
+    print(dataset_sizes)
+    return dataset_filenames, dataset_sizes

@@ -172,6 +172,52 @@ def build_tensorflw_variables_multiple():
             print([v.name for v in tf.global_variables()])
 
 
+def build_tensorflw_variables_multiple_5_way():
+    '''
+    Build the required tensorflow variables to populate the VGG-16 model
+    All are initialized with zeros (initialization doesn't matter in this case as we assign exact values later)
+    :param variable_shapes: Shapes of the variables
+    :return:
+    '''
+    global logger,sess
+
+    logger.info("Building Tensorflow Variables (Tensorflow)...")
+    used_directions = []
+    with sess.as_default():
+
+        for si,scope in enumerate(config.TF_ANG_SCOPES):
+            with tf.variable_scope(scope) as sc:
+                for di in config.TF_DIRECTION_LABELS_GENERAL:
+                    # in the experiment we have 5 heads
+                    # but use only 3 different conv sub-modules
+                    if di in used_directions:
+                        continue
+                    with tf.variable_scope(di):
+
+                        # Try Except because if you try get_variable with an intializer and
+                        # the variable exists, you will get a ValueError saying the variable exists
+
+                        try:
+                            if 'pool' not in scope:
+                                tf.get_variable(config.TF_WEIGHTS_STR,shape=config.TF_ANG_VAR_SHAPES_MULTIPLE[scope],
+                                                          initializer=tf.contrib.layers.xavier_initializer())
+                                tf.get_variable(config.TF_BIAS_STR, config.TF_ANG_VAR_SHAPES_MULTIPLE[scope][-1],
+                                                       initializer = tf.random_uniform_initializer(minval=-0.01,maxval=+0.01,dtype=tf.float32))
+
+                                with tf.variable_scope(config.TF_WEIGHTS_STR):
+                                    tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_MULTIPLE[scope],
+                                                    initializer = tf.constant_initializer(0,dtype=tf.float32))
+                                with tf.variable_scope(config.TF_BIAS_STR):
+                                    tf.get_variable(config.TF_MOMENTUM_STR,shape=config.TF_ANG_VAR_SHAPES_MULTIPLE[scope][-1],
+                                                    initializer = tf.constant_initializer(0,dtype=tf.float32))
+
+                        except ValueError as e:
+                            logger.critical(e)
+                            logger.debug('Variables in scope %s already initialized\n'%scope)
+
+                    used_directions.append(di)
+            print([v.name for v in tf.global_variables()])
+
 def build_tensorflw_variables_dual_naive():
     '''
     The dual model has dedicated variables for collision and non-collision learning as below
