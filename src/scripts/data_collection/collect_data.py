@@ -232,10 +232,11 @@ if __name__=='__main__':
             if opt == '--experiment-type':
                 if str(arg).lower() == 'sim':
                     utils.TYPE = 'SIM'
-                    utils.IMG_UPDOWN = False
+                    utils.set_parameters_with_type(utils.TYPE)
+
                 elif str(arg).lower() == 'real':
                     utils.TYPE = 'REAL'
-                    utils.IMG_UPDOWN = True
+                    utils.set_parameters_with_type(utils.TYPE)
                 else:
                     raise NotImplementedError
             if opt == '--n-ways':

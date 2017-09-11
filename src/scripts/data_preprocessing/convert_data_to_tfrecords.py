@@ -70,7 +70,7 @@ def dump_to_tfrecord_suffled(data_folder, data_save_dir, drive_direct_dict, imag
     return file_size_stat_dict
 
 def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
-                               image_ids,image_fname_prefix, max_instances_per_file=None,
+                               image_ids,image_fname_prefix, n_direction, max_instances_per_file=None,
                                shuffle=False, augment_data=False, save_images_for_testing=False):
     '''
     Converts a dataset to tfrecords. Write several tfrecords by breaking the dataset into number of chunks
@@ -94,7 +94,7 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
 
     file_size_stat_dict = {}
     if save_images_for_testing:
-        for di in range(3):
+        for di in range(n_direction):
             direct_sub_dir =save_dir + os.sep + 'direction-'+str(di)
             if not os.path.exists(direct_sub_dir):
                 os.mkdir(direct_sub_dir)
@@ -130,10 +130,22 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
         if augment_data:
             flip_direction = drive_direct_dict[img_id]
             im_mat_flip = np.fliplr(im_mat)
-            if drive_direct_dict[img_id] == 0:
-                flip_direction = 2
-            elif drive_direct_dict[img_id] == 2:
-                flip_direction = 0
+            if n_direction == 5:
+                if drive_direct_dict[img_id] == 0:
+                    flip_direction = 4
+                elif drive_direct_dict[img_id] == 1:
+                    flip_direction = 3
+                elif drive_direct_dict[img_id] == 4:
+                    flip_direction = 0
+                elif drive_direct_dict[img_id] == 3:
+                    flip_direction = 1
+
+            elif n_direction == 3:
+                if drive_direct_dict[img_id] == 0:
+                    flip_direction = 2
+                elif drive_direct_dict[img_id] == 2:
+                    flip_direction = 0
+
 
             im_raw_flip = im_mat_flip.tostring()
 
@@ -167,7 +179,10 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
 
     return file_size_stat_dict
 
-def dump_to_tfrecord_sorted_by_direction(data_folder, save_dir, img_id_to_direction_dict, image_ids, image_fname_prefix, max_instances_per_file, augment_data):
+def dump_to_tfrecord_sorted_by_direction(
+        data_folder, save_dir, img_id_to_direction_dict, image_ids, image_fname_prefix,
+        n_direction, max_instances_per_file, augment_data):
+
     """
     Converts a dataset to tfrecords. Seperate data by direction
     :param data_folder:
@@ -179,20 +194,20 @@ def dump_to_tfrecord_sorted_by_direction(data_folder, save_dir, img_id_to_direct
     file_size_stat_dict = {}
     tfrecords_filenames = []
     writers = []
-    items_for_direction = [0 for _ in range(3)]
-    file_indices = [0 for _ in range(3)]
-    size_per_file = [0 for _ in range(3)]
+    items_for_direction = [0 for _ in range(n_direction)]
+    file_indices = [0 for _ in range(n_direction)]
+    size_per_file = [0 for _ in range(n_direction)]
     # create 3 tf records each for each direction
-    for di in range(3):
+    for di in range(n_direction):
         tfrecords_filenames.append(save_dir + os.sep + 'image-%d-part-%d.tfrecords'%(di, file_indices[di]))
         writers.append(tf.python_io.TFRecordWriter(tfrecords_filenames[di]))
 
     # create example for each image write with the writer
     for img_id in image_ids:
         direction = int(img_id_to_direction_dict[img_id])
-        im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
-        im_mat = np.array(im,dtype=np.float32)
-
+        im = Image.open(data_folder + os.sep + image_fname_prefix + '_%d.png'%img_id)
+        #print(image_fname_prefix + '_%d.png'%img_id)
+        im_mat = np.asarray(im,dtype=np.float32)
 
         (rows,cols,ch) = im_mat.shape
         im_raw = im_mat.tostring()
@@ -213,10 +228,25 @@ def dump_to_tfrecord_sorted_by_direction(data_folder, save_dir, img_id_to_direct
         if augment_data:
             flip_direction = img_id_to_direction_dict[img_id]
             im_mat_flip = np.fliplr(im_mat)
-            if img_id_to_direction_dict[img_id] == 0:
-                flip_direction = 2
-            elif img_id_to_direction_dict[img_id] == 2:
-                flip_direction = 0
+
+            if n_direction == 5:
+                if img_id_to_direction_dict[img_id] == 0:
+                    flip_direction = 4
+                elif img_id_to_direction_dict[img_id] == 1:
+                    flip_direction = 3
+                elif img_id_to_direction_dict[img_id] == 4:
+                    flip_direction = 0
+                elif img_id_to_direction_dict[img_id] == 3:
+                    flip_direction = 1
+
+            elif n_direction == 3:
+                if img_id_to_direction_dict[img_id] == 0:
+                    flip_direction = 2
+                elif img_id_to_direction_dict[img_id] == 2:
+                    flip_direction = 0
+
+            else:
+                raise NotImplementedError
 
             im_raw_flip = im_mat_flip.tostring()
 
@@ -343,7 +373,72 @@ def save_training_data():
         logger.info('=' * 80)
 
         file_size_stat = dump_to_tfrecord_sorted_by_direction(data_folder, direction_save_dir, img_id_to_direction_dict, img_indices,
-                                             image_fname_prefix, max_instances_per_file, augment_data=True)
+                                             image_fname_prefix, 3, max_instances_per_file, augment_data=True)
+
+        with open(direction_save_dir+os.sep+'dataset_sizes.txt','w') as f:
+            for k,v in file_size_stat.items():
+                f.write(str(k)+':'+str(v))
+                f.write('\n')
+
+
+def save_training_data_5_way():
+    # Used as Training Data
+    # ==========================================
+    is_bump_list = [False, False, False]
+
+    data_folders_list = [
+        '.' + os.sep + '..' + os.sep + 'indoor-1-5-way-3000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my1-5-way-3000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my2-5-way-3000',
+    ]
+
+    assert len(is_bump_list) == len(data_folders_list), 'Bump List length and Data Folder lenght do not match'
+
+    for is_bump_data, data_folder in zip(is_bump_list, data_folders_list):
+
+        direction_frequency_stats = [0 for _ in range(5)]
+        direction_save_dir = data_folder + os.sep + 'data-separated-by-direction-augmented-5-way'
+
+        if not os.path.exists(direction_save_dir):
+            os.mkdir(direction_save_dir)
+
+        angle_dict = {}
+        img_id_to_direction_dict = {}
+        direction_to_img_id_dict = {0: [], 1: [], 2: [], 3:[], 4:[]}
+        img_indices = []
+
+        drive_angle_filename = config.DRIVE_ANGLE_LOG if not is_bump_data else config.BUMP_DRIVE_ANGLE_LOG
+        try:
+            with open(data_folder + os.sep + drive_angle_filename) as f:
+                f = f.readlines()
+                for line in f:
+                    txt_tokens = line.split(':')
+                    angle_dict[int(txt_tokens[0])] = float(txt_tokens[1])
+                    img_indices.append(int(txt_tokens[0]))
+                    img_id_to_direction_dict[int(txt_tokens[0])] = int(txt_tokens[2])
+                    direction_to_img_id_dict[int(txt_tokens[2])].append(int(txt_tokens[0]))
+                    direction_frequency_stats[int(txt_tokens[2])] += 1
+        except FileNotFoundError as e:
+            print(e)
+
+        print(data_folder)
+        print('Hard-Left','Soft-Left', 'Straight', 'Soft-Right','Hard-Right')
+        print(direction_frequency_stats)
+        print()
+
+        if not is_bump_data:
+            image_fname_prefix = 'img'
+            max_instances_per_file = 50
+        else:
+            image_fname_prefix = 'bump_img'
+            max_instances_per_file = 50
+
+        logger.info('=' * 80)
+        logger.info(data_folder)
+        logger.info('=' * 80)
+
+        file_size_stat = dump_to_tfrecord_sorted_by_direction(data_folder, direction_save_dir, img_id_to_direction_dict, img_indices,
+                                             image_fname_prefix, 5, max_instances_per_file, augment_data=True)
 
         with open(direction_save_dir+os.sep+'dataset_sizes.txt','w') as f:
             for k,v in file_size_stat.items():
@@ -429,12 +524,85 @@ def save_testing_data():
         equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
         #file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
         file_size_stat = dump_to_tfrecord_in_chunks(data_folder,equal_save_dir,img_id_to_direction_dict,equal_img_indices,image_fname_prefix,
+                                                    3, max_instances_per_file=None,augment_data=True,shuffle=True,save_images_for_testing=True)
+
+        with open(equal_save_dir+os.sep+'dataset_sizes.txt','w') as f:
+            for k,v in file_size_stat.items():
+                f.write(str(k)+':'+str(v))
+                f.write('\n')
+
+
+def save_testing_data_5_way():
+    # Used as Testing Data
+    # =================================================
+
+    is_bump_list = [False, False, False]
+
+    data_folders_list = [
+        '.' + os.sep + '..' + os.sep + 'indoor-1-5-way-3000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my1-5-way-3000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my2-5-way-3000',
+    ]
+
+    assert len(is_bump_list) == len(data_folders_list), 'Bump List length and Data Folder lenght do not match'
+
+    for is_bump_data, data_folder in zip(is_bump_list, data_folders_list):
+
+        direction_frequency_stats = [0 for _ in range(5)]
+        equal_save_dir = data_folder + os.sep + 'data-equal-5-way'
+
+        if not os.path.exists(equal_save_dir):
+            os.mkdir(equal_save_dir)
+
+        angle_dict = {}
+        img_id_to_direction_dict = {}
+        direction_to_img_id_dict = {0: [], 1: [], 2: [], 3:[], 4:[]}
+        img_indices = []
+
+        drive_angle_filename = config.DRIVE_ANGLE_LOG if not is_bump_data else config.BUMP_DRIVE_ANGLE_LOG
+        try:
+            with open(data_folder + os.sep + drive_angle_filename) as f:
+                f = f.readlines()
+                for line in f:
+                    txt_tokens = line.split(':')
+                    angle_dict[int(txt_tokens[0])] = float(txt_tokens[1])
+                    img_indices.append(int(txt_tokens[0]))
+                    img_id_to_direction_dict[int(txt_tokens[0])] = int(txt_tokens[2])
+                    direction_to_img_id_dict[int(txt_tokens[2])].append(int(txt_tokens[0]))
+                    direction_frequency_stats[int(txt_tokens[2])] += 1
+        except FileNotFoundError as e:
+            print(e)
+
+        print(data_folder)
+        print('Hard-Left', 'Soft-Left', 'Straight', 'Soft-Right', 'Hard-Right')
+        print(direction_frequency_stats)
+        print()
+
+        if not is_bump_data:
+            data_indices = img_indices
+            image_fname_prefix = 'img'
+            max_instances_per_file = 50
+        else:
+            data_indices = img_indices
+            image_fname_prefix = 'bump_img'
+            max_instances_per_file = 50
+
+        logger.info('=' * 80)
+        logger.info(data_folder)
+        logger.info('=' * 80)
+
+
+        equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
+        #file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
+        file_size_stat = dump_to_tfrecord_in_chunks(data_folder,equal_save_dir,img_id_to_direction_dict,
+                                                    equal_img_indices,image_fname_prefix,5,
                                                     max_instances_per_file=None,augment_data=True,shuffle=True,save_images_for_testing=True)
 
         with open(equal_save_dir+os.sep+'dataset_sizes.txt','w') as f:
             for k,v in file_size_stat.items():
                 f.write(str(k)+':'+str(v))
                 f.write('\n')
+
 
 logger = None
 if __name__ == '__main__':
@@ -444,13 +612,13 @@ if __name__ == '__main__':
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(logging.Formatter('%(message)s'))
     console.setLevel(logging.INFO)
-    fileHandler = logging.FileHandler('data-sizes.log', mode='w')
+    fileHandler = logging.FileHandler('data-sizes-5-way.log', mode='w')
     fileHandler.setFormatter(logging.Formatter('%(message)s'))
     fileHandler.setLevel(logging.DEBUG)
     logger.addHandler(console)
     logger.addHandler(fileHandler)
 
-    save_testing_data()
+    save_testing_data_5_way()
     #save_training_data()
     # Used as Test Data (Should have equal amounts for each direction)
     # =======================================
