@@ -8,7 +8,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 from math import ceil
-
+import matplotlib.gridspec as gridspec
 
 logger = logging.getLogger('CNNVisualizationLogger')
 logger.setLevel(logging.DEBUG)
@@ -51,6 +51,11 @@ def save_cnn_weights_naive(main_dir, sess,model_filepath):
                 with tf.variable_scope(scope,reuse=True):
                     var_dict[weights_name] = tf.get_variable(config.TF_WEIGHTS_STR)
                     var_dict[bias_name] = tf.get_variable(config.TF_BIAS_STR)
+
+                    with open(main_dir + os.sep + config.WEIGHT_SAVE_DIR + 'variable_names.txt') as f:
+                        f.write(weights_name)
+                        f.write(bias_name)
+
             else:
                 with tf.variable_scope(scope, reuse=True):
                     for di in config.TF_DIRECTION_LABELS:
@@ -62,6 +67,10 @@ def save_cnn_weights_naive(main_dir, sess,model_filepath):
 
                             var_dict[weights_name] = tf.get_variable(config.TF_WEIGHTS_STR)
                             var_dict[bias_name] = tf.get_variable(config.TF_BIAS_STR)
+
+                            with open(main_dir + os.sep + config.WEIGHT_SAVE_DIR + 'variable_names.txt') as f:
+                                f.write(weights_name)
+                                f.write(bias_name)
 
     saver = tf.train.Saver(var_dict)
     saver.save(sess,main_dir + os.sep + config.WEIGHT_SAVE_DIR + os.sep +  model_filepath)
@@ -318,37 +327,58 @@ def cnn_visualize_activations_multiple(main_dir, sess, weights_filepath, hyperpa
 
 
 
-def cnn_store_activations_as_image(activation_dict,orig_image,img_id, filename_prefix):
+def cnn_store_activations_as_image(activation_dict,visualization_scopes,orig_image,img_id, filename_prefix,activation_type):
 
-    number_of_cols = 10
+    number_of_cols_per_direction = 5
+    rows_per_layer = 2
 
-    for k,v in activation_dict.items():
+    nrows, ncols = len(visualization_scopes) * rows_per_layer + 1, 3 * number_of_cols_per_direction
+
+    # fig, ax = plt.subplots(nrows=nrows, ncols=ncols)
+
+    fig = plt.figure(1)
+    gs0 = gridspec.GridSpec(nrows, ncols, wspace=0.1, hspace=0.0)
+
+    ax = [[None for _ in range(ncols)] for _ in range(nrows)]
+    for ri in range(nrows):
+        for ci in range(ncols):
+            ax[ri][ci] = plt.subplot(gs0[ri * ncols + ci])
+            ax[ri][ci].axis('off')
+
+    norm_img = orig_image[0, :, :, :] - np.min(orig_image[0, :, :, :])
+    norm_img = (norm_img / np.max(norm_img))
+    ax[0][0].imshow(norm_img, aspect='auto')
+    ax[0][0].axis('off')
+
+    for sc_i, scope in enumerate(visualization_scopes):
+        if 'fc' in scope:
+            raise NotImplementedError
+
+        key = scope
+        v = activation_dict[key]
         tensor_depth = v.shape[-1]
         print(v.shape)
-        # depth+1 for the original image
-        fig, ax = plt.subplots(nrows=ceil((tensor_depth+1)*1.0/number_of_cols), ncols=number_of_cols)
 
-        if 'fc' in k:
-            continue
+        if activation_type == 'highest':
+            best_indices = np.argsort(np.mean(v, axis=tuple(range(0, 3))).flatten())
+            best_indices = best_indices.flatten()[-3*number_of_cols_per_direction:]
+        elif activation_type == 'random':
+            best_indices = np.random.randint(0, tensor_depth, 3*number_of_cols_per_direction)
+        print('Found best indices: ', best_indices)
 
-        for ri in range(ceil((tensor_depth+1)*1.0/number_of_cols)):
-            for ci in range(number_of_cols):
-                if ri==0 and ci==0:
-                    norm_img = orig_image[0,:,:,:] - np.min(orig_image[0,:,:,:])
-                    norm_img = (norm_img / np.max(norm_img))
-                    ax[ri, ci].imshow(norm_img)
-                    ax[ri,ci].axis('off')
-                else:
-                    index = ri*number_of_cols + ci - 1
-                    if index >= tensor_depth:
-                        break
-                    if 'conv' in k:
-                        ax[ri,ci].imshow(v[0,:,:,index])
-                        ax[ri, ci].axis('off')
+        for bi, best_idx in enumerate(best_indices):
+            ri = (sc_i * rows_per_layer) + 1
+            ci = bi
 
-        fig.savefig(filename_prefix + '_activation_%s_%d.jpg'%(k,img_id))
-        plt.cla()
-        plt.close(fig)
+            ax[ri][ci].imshow(v[0, :, :, best_idx], aspect='auto')
+            ax[ri][ci].axis('off')
+
+    # fig.tight_layout()
+    # fig.subplots_adjust(wspace=0.02, hspace=0.02, bottom=0.12, top=0.99, right=0.99, left=0.01)
+    fig.savefig(filename_prefix + '_naive_activation_%d.jpg' % (img_id))
+    plt.cla()
+    plt.close(fig)
+
 
 
 def cnn_store_activations_as_image_heirarchy_for_cerberus(activation_dict,visualization_scopes,orig_image,img_id, filename_prefix,activation_type):
@@ -357,20 +387,34 @@ def cnn_store_activations_as_image_heirarchy_for_cerberus(activation_dict,visual
     rows_per_layer = 2
 
     nrows, ncols = len(visualization_scopes)*rows_per_layer + 1, 3 * number_of_cols_per_direction
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols)
-    padding = 0.1
-    fig_w = ncols * 2.0 + (ncols + 1) * padding
-    fig_h = nrows * 1.0 + (nrows + 1) * padding
-    fig.set_size_inches(fig_w, fig_h)
 
+    #fig, ax = plt.subplots(nrows=nrows, ncols=ncols)
+
+    fig = plt.figure(1)
+    gs0 = gridspec.GridSpec(1, 3, wspace=0.2, hspace=0.0)
+    sub_gs = []
+    #gs0.update(wspace=0.1, hspace=0.01, left=0.1, right=0.4, bottom=0.1, top=0.9)
+    for di in range(3):
+        sub_gs.append(gridspec.GridSpecFromSubplotSpec(nrows, number_of_cols_per_direction, wspace=0.1, hspace=0.0, subplot_spec=gs0[di]))
+
+    #gs1.update(wspace=0.05, hspace=0.05)  # set the spacing between axes.
+    #padding = 0.1
+    #fig_w = ncols * 2.0 + (ncols + 1) * padding
+    #fig_h = nrows * 1.0 + (nrows + 1) * padding
+    #fig.set_size_inches(fig_w, fig_h)
+
+    ax = [[None for _ in range(ncols)] for _ in range(nrows)]
     for ri in range(nrows):
         for ci in range(ncols):
-            ax[ri,ci].axis('off')
+            sub_gs_index = ci//number_of_cols_per_direction
+            within_sub_gs_index = ci%number_of_cols_per_direction
+            ax[ri][ci]=plt.subplot(sub_gs[sub_gs_index][ri*number_of_cols_per_direction+within_sub_gs_index])
+            ax[ri][ci].axis('off')
 
     norm_img = orig_image[0, :, :, :] - np.min(orig_image[0, :, :, :])
     norm_img = (norm_img / np.max(norm_img))
-    ax[0, 0].imshow(norm_img)
-    ax[0, 0].axis('off')
+    ax[0][0].imshow(norm_img,aspect='auto')
+    ax[0][0].axis('off')
 
 
     for sc_i,scope in enumerate(visualization_scopes):
@@ -394,10 +438,11 @@ def cnn_store_activations_as_image_heirarchy_for_cerberus(activation_dict,visual
                 ri = (sc_i * rows_per_layer)+1
                 ci = (number_of_cols_per_direction*d_idx) + bi
 
-                ax[ri, ci].imshow(v[0, :, :, best_idx])
-                ax[ri, ci].axis('off')
+                ax[ri][ ci].imshow(v[0, :, :, best_idx],aspect='auto')
+                ax[ri][ci].axis('off')
 
-    fig.tight_layout()
+    #fig.tight_layout()
+    #fig.subplots_adjust(wspace=0.02, hspace=0.02, bottom=0.12, top=0.99, right=0.99, left=0.01)
     fig.savefig(filename_prefix + '_activation_%d.jpg'%(img_id))
     plt.cla()
     plt.close(fig)

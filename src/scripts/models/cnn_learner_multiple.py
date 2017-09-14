@@ -374,7 +374,6 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
 
     tf.global_variables_initializer().run(session=sess)
 
-
     max_valid_accuracy = 0
     n_valid_saturated = 0
     valid_saturate_threshold = 3
@@ -480,8 +479,8 @@ def train_cnn_multiple_epochs(sess, n_epochs, test_interval, dataset_filenames_d
 def loop_through_by_using_every_dataset_as_holdout_dataset(main_dir):
 
     hold_out_list = ['apartment-my1-2000','apartment-my2-2000','apartment-my3-2000',
-                     'indoor-1-2000','indoor-1-my1-2000','grande_salle-my1-2000',
-                     'grande_salle-my2-2000','sandbox-2000']
+                     'indoor-1-2000','indoor-1-my1-2000','indoor-1-my2-2000','grande_salle-my1-2000',
+                     'grande_salle-my2-2000','grande_salle-my2-2000','sandbox-2000']
 
     for hold_index, hold_name in enumerate(hold_out_list):
         sub_dir = main_dir + os.sep + hold_name

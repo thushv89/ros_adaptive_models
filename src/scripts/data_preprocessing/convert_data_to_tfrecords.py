@@ -314,7 +314,7 @@ def get_image_indices_with_uniform_distribution(direction_to_img_id_dict):
 def save_training_data():
     # Used as Training Data
     # ==========================================
-    is_bump_list = [False, False, False, False, False, False, False, False]
+    '''is_bump_list = [False, False, False, False, False, False, False, False]
 
     data_folders_list = [
         '.' + os.sep + '..' + os.sep + 'apartment-my1-2000',
@@ -325,6 +325,13 @@ def save_training_data():
         '.' + os.sep + '..' + os.sep + 'grande_salle-my1-2000',
         '.' + os.sep + '..' + os.sep + 'grande_salle-my2-2000',
         '.' + os.sep + '..' + os.sep + 'sandbox-2000'
+    ]'''
+
+    is_bump_list = [False, False]
+
+    data_folders_list = [
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my2-2000',
+        '.' + os.sep + '..' + os.sep + 'grande_salle-my3-2000',
     ]
 
     assert len(is_bump_list) == len(data_folders_list), 'Bump List length and Data Folder lenght do not match'
@@ -450,7 +457,7 @@ def save_testing_data():
     # Used as Testing Data
     # =================================================
 
-    is_bump_list = [False, False, False, False, False, False, False, False,
+    '''is_bump_list = [False, False, False, False, False, False, False, False,
                     True, True, True, True, True, True, True, True]
 
     data_folders_list = [
@@ -470,6 +477,15 @@ def save_testing_data():
         '.' + os.sep + '..' + os.sep + 'grande_salle-my1-bump-200',
         '.' + os.sep + '..' + os.sep + 'grande_salle-my2-bump-200',
         '.' + os.sep + '..' + os.sep + 'sandbox-bump-200'
+    ]'''
+
+    is_bump_list = [False, False, True, True]
+
+    data_folders_list = [
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my2-2000',
+        '.' + os.sep + '..' + os.sep + 'grande_salle-my3-2000',
+        '.' + os.sep + '..' + os.sep + 'indoor-1-my2-bump-200',
+        '.' + os.sep + '..' + os.sep + 'grande_salle-my3-bump-200'
     ]
 
     assert len(is_bump_list) == len(data_folders_list), 'Bump List length and Data Folder lenght do not match'
@@ -612,13 +628,14 @@ if __name__ == '__main__':
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(logging.Formatter('%(message)s'))
     console.setLevel(logging.INFO)
-    fileHandler = logging.FileHandler('data-sizes-5-way.log', mode='w')
+    fileHandler = logging.FileHandler('data-sizes-test-sizes-new.log', mode='w')
     fileHandler.setFormatter(logging.Formatter('%(message)s'))
     fileHandler.setLevel(logging.DEBUG)
     logger.addHandler(console)
     logger.addHandler(fileHandler)
 
-    save_testing_data_5_way()
+    #save_training_data()
+    save_testing_data()
     #save_training_data()
     # Used as Test Data (Should have equal amounts for each direction)
     # =======================================

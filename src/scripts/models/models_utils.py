@@ -351,7 +351,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin, max_thresh, min_thresh):
         logger.debug('')
         # list with each item being an array corresponding to a single direction
         # where array items are the indices of that direction
-        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
+        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(config.TF_NUM_CLASSES)]
         logger.debug('Label indices binned by the label')
         logger.debug(label_indices_binned_to_direct)
         logger.debug('')
@@ -363,7 +363,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin, max_thresh, min_thresh):
             np.logical_or(
                 pred[np.arange(pred.shape[0]), np.ones(pred.shape[0],dtype=np.int32)*i] > max_thresh,
                 np.argmax(pred, axis=1) == np.ones(pred.shape[0],dtype=np.int32)*i
-            )==True)[0] for i in range(3)
+            )==True)[0] for i in range(config.TF_NUM_CLASSES)
         ]
 
         logger.debug('Prediction indices binned by the label (SOFT)')
@@ -393,11 +393,11 @@ def precision_multiclass(pred,ohe_labels, use_argmin, max_thresh, min_thresh):
         label_indices = np.argmin(ohe_labels, axis=1).flatten()
         # list with each item being an array corresponding to a single direction
         # where array items are the indices of that direction
-        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
+        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(config.TF_NUM_CLASSES)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
             pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < min_thresh,
             np.argmin(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
-                                               for i in range(3)
+                                               for i in range(config.TF_NUM_CLASSES)
                                                ]
 
         precision_array = []
@@ -417,11 +417,11 @@ def recall_multiclass(pred, ohe_labels, use_argmin, max_thresh, min_thresh):
         label_indices = np.argmax(ohe_labels, axis=1).flatten()
         # list with each item being an array corresponding to a single direction
         # where array items are the indices of that direction
-        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
+        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(config.TF_NUM_CLASSES)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
             pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] > max_thresh,
             np.argmax(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
-                                               for i in range(3)
+                                               for i in range(config.TF_NUM_CLASSES)
                                                ]
 
         recall_array = []
@@ -437,11 +437,11 @@ def recall_multiclass(pred, ohe_labels, use_argmin, max_thresh, min_thresh):
         label_indices = np.argmin(ohe_labels, axis=1).flatten()
         # list with each item being an array corresponding to a single direction
         # where array items are the indices of that direction
-        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(3)]
+        label_indices_binned_to_direct = [np.where(label_indices == i)[0] for i in range(config.TF_NUM_CLASSES)]
         prediction_indices_binned_to_direct = [np.where(np.logical_or(
             pred[np.arange(pred.shape[0]), np.ones(pred.shape[0], dtype=np.int32) * i] < min_thresh,
             np.argmin(pred, axis=1) == np.ones(pred.shape[0], dtype=np.int32) * i) == True)[0]
-                                               for i in range(3)
+                                               for i in range(config.TF_NUM_CLASSES)
                                                ]
 
         recall_array = []

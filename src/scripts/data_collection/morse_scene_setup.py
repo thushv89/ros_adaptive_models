@@ -53,7 +53,7 @@ if __name__ == '__main__':
     #apartment-my1.blend  apartment-my3.blend
     #apartment-my2.blend  indoor-1-my1.blend
 
-    #env = Environment('sandbox')
+    env = Environment('sandbox')
 
     #environment_str = 'indoors-1/indoor-1'
     #environment_str = 'my-environments/indoor-1-my1'
@@ -62,6 +62,7 @@ if __name__ == '__main__':
     #environment_str = 'my-environments/apartment-my2'
     #environment_str = 'my-environments/apartment-my3'
     #environment_str = 'my-environments/grande_salle-my1'
-    environment_str = 'my-environments/grande_salle-my2'
-    env = Environment(environment_str)
+    #environment_str = 'my-environments/grande_salle-my2'
+    #environment_str = 'my-environments/grande_salle-my3'
+    #env = Environment(environment_str)
 
