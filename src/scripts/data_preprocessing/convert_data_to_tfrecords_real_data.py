@@ -111,7 +111,8 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
         np.random.shuffle(image_ids)
     for img_id in image_ids:
         im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
-        im_mat = np.array(im,dtype=np.float32)
+        im.thumbnail((RESIZE_W, RESIZE_H), Image.ANTIALIAS)
+        im_mat = np.array(im, dtype=np.float32)
         drive_direction = drive_direct_dict[img_id]
 
         (rows,cols,ch) = im_mat.shape
@@ -208,7 +209,7 @@ def dump_to_tfrecord_sorted_by_direction(
     for img_id in image_ids:
         direction = int(img_id_to_direction_dict[img_id])
         im = Image.open(data_folder + os.sep + image_fname_prefix + '_%d.png'%img_id)
-        #print(image_fname_prefix + '_%d.png'%img_id)
+        im.thumbnail((RESIZE_W, RESIZE_H), Image.ANTIALIAS)
         im_mat = np.asarray(im,dtype=np.float32)
 
         (rows,cols,ch) = im_mat.shape
@@ -342,10 +343,10 @@ def save_training_data(test_range):
     for is_bump_data, data_folder in zip(is_bump_list, data_folders_list):
 
         direction_frequency_stats = [0 for _ in range(3)]
-        direction_save_dir = data_folder + os.sep + 'data-separated-by-direction-augmented'
+        train_save_dir = data_folder + os.sep + 'train'
 
-        if not os.path.exists(direction_save_dir):
-            os.mkdir(direction_save_dir)
+        if not os.path.exists(train_save_dir):
+            os.mkdir(train_save_dir)
 
         angle_dict = {}
         img_id_to_direction_dict = {}
@@ -383,10 +384,14 @@ def save_training_data(test_range):
         logger.info(data_folder)
         logger.info('=' * 80)
 
-        file_size_stat = dump_to_tfrecord_sorted_by_direction(data_folder, direction_save_dir, img_id_to_direction_dict, img_indices,
-                                             image_fname_prefix, 3, max_instances_per_file, augment_data=True)
+        equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
+        # file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
+        file_size_stat = dump_to_tfrecord_in_chunks(data_folder, train_save_dir, img_id_to_direction_dict,
+                                                    equal_img_indices, image_fname_prefix,
+                                                    3, max_instances_per_file=None, augment_data=True, shuffle=True,
+                                                    save_images_for_testing=True)
 
-        with open(direction_save_dir+os.sep+'dataset_sizes.txt','w') as f:
+        with open(train_save_dir+os.sep+'dataset_sizes.txt','w') as f:
             for k,v in file_size_stat.items():
                 f.write(str(k)+':'+str(v))
                 f.write('\n')
@@ -430,7 +435,7 @@ def save_testing_data(test_range):
     for is_bump_data, data_folder in zip(is_bump_list, data_folders_list):
 
         direction_frequency_stats = [0 for _ in range(3)]
-        equal_save_dir = data_folder + os.sep + 'data-equal'
+        equal_save_dir = data_folder + os.sep + 'test'
 
         if not os.path.exists(equal_save_dir):
             os.mkdir(equal_save_dir)
@@ -505,7 +510,7 @@ if __name__ == '__main__':
     logger.addHandler(fileHandler)
 
     test_range = (1538,1988)
-    #save_training_data(test_range)
+    save_training_data(test_range)
     save_testing_data(test_range)
     #save_training_data()
     # Used as Test Data (Should have equal amounts for each direction)

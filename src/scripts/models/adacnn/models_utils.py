@@ -67,7 +67,7 @@ def get_fc_height_width(input_size, scope_list, strides):
     return fc_h,fc_w
 
 
-def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae, rand_valid_direction_for_bump):
+def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_opposite_label, inputs_for_sdae):
     '''
 
     :param filenames: Filenames as a list
@@ -109,8 +109,6 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
         image = tf.reshape(image,config.TF_INPUT_SIZE,name='reshape_1d_to_3d')
         image.set_shape(config.TF_INPUT_SIZE)
 
-        if config.USE_GRAYSCALE:
-            image = tf.image.rgb_to_grayscale(image,name='grayscale_image')
         if training_data:
             flip_rand = tf.random_uniform(shape=[1], minval=0, maxval=1.0, seed=154324654)
             image = tf.cond(flip_rand[0] > 0.5,
@@ -145,10 +143,7 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
         ids = tf.cast(features[config.FEAT_IMG_ID], tf.int32)
 
         if use_opposite_label:
-            if rand_valid_direction_for_bump:
-                raise NotImplementedError
-            else:
-                one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=-1.0, off_value=0.0)
+            one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=0.0, off_value=1.0)
         else:
             one_hot_label = tf.one_hot(label, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
 

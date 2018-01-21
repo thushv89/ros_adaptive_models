@@ -36,20 +36,28 @@ sess = None
 
 activation = config.ACTIVATION
 output_activation = 'sigmoid'
-
 max_thresh = 0.55
 min_thresh = 0.45
 
 kernel_size_dict = config.TF_ANG_VAR_SHAPES_NAIVE
+
 stride_dict = config.TF_ANG_STRIDES
 scope_list = config.TF_ANG_SCOPES
-
+conv_dropout_placeholder_dict = {}
 
 def set_scope_kernel_stride_dicts(sc_list, k_dict, s_dict):
     global kernel_size_dict,stride_dict,scope_list
     scope_list = sc_list
     kernel_size_dict = k_dict
     stride_dict = s_dict
+
+
+def define_conv_dropout_placeholder():
+    global scope_list, conv_dropout_placeholder_dict
+
+    for op in scope_list:
+        if 'conv' in op:
+            conv_dropout_placeholder_dict[op] = tf.placeholder(dtype=tf.float32,shape=[kernel_size_dict[op][-1]],name='dropout_'+op)
 
 
 def logits(tf_inputs,is_training,direction=None):
@@ -72,19 +80,27 @@ def logits(tf_inputs,is_training,direction=None):
                         if is_training and config.USE_DROPOUT:
                             tf_inputs = tf.nn.dropout(tf_inputs,1.0 - config.IN_DROPOUT,name='input_dropout')
                         h = models_utils.activate(tf.nn.conv2d(tf_inputs,weight,strides=stride_dict[scope],padding='SAME')+bias,activation,name='hidden')
+
+                        if config.USE_DROPOUT:
+                            h = h * tf.reshape(conv_dropout_placeholder_dict[scope],[1,1,1,-1])
                     else:
-                        h = models_utils.activate(tf.nn.conv2d(h, weight, strides=stride_dict[scope], padding='SAME') + bias, activation,
-                                       name='hidden')
+                        h = models_utils.activate(
+                            tf.nn.conv2d(h, weight, strides=stride_dict[scope], padding='SAME') + bias, activation,
+                            name='hidden')
+                        if config.USE_DROPOUT:
+                            h = h * tf.reshape(conv_dropout_placeholder_dict[scope],[1,1,1,-1])
+
                 elif 'pool' in scope:
                     logger.info('\t\tMax pooling for %s', scope)
                     h = tf.nn.max_pool(h,kernel_size_dict[scope],stride_dict[scope],padding='SAME',name='pool_hidden')
-                    if is_training and config.USE_DROPOUT:
-                        h = tf.nn.dropout(h, 1.0 - config.LAYER_DROPOUT, name='pool_dropout')
+                    #if is_training and config.USE_DROPOUT:
+                    #    h = tf.nn.dropout(h, 1.0 - config.LAYER_DROPOUT, name='pool_dropout')
                 else:
 
                     # Reshaping required for the first fulcon layer
                     if scope == 'out':
                         logger.info('\t\tFully-connected with output Logits for %s',scope)
+
                         if direction is None:
                             h_per_di = []
                             for di in ['left','straight','right']:
@@ -106,6 +122,8 @@ def logits(tf_inputs,is_training,direction=None):
                             h_shape = h.get_shape().as_list()
                             logger.info('\t\t\tReshaping the input (of size %s) before feeding to %s', scope, h_shape)
                             h = tf.reshape(h, [config.BATCH_SIZE, h_shape[1] * h_shape[2] * h_shape[3]])
+
+
                             h = models_utils.activate(tf.matmul(h, weight) + bias, activation)
 
                             if is_training and config.USE_DROPOUT:
@@ -117,7 +135,6 @@ def logits(tf_inputs,is_training,direction=None):
                         raise NotImplementedError
 
     return h
-
 
 
 def predictions_with_inputs(tf_inputs):
@@ -704,9 +721,7 @@ sess = None
 def loop_through_by_using_every_dataset_as_holdout_dataset(main_dir,n_epochs):
     global min_thresh,max_thresh
 
-    hold_out_list = ['apartment-my1-2000', 'apartment-my2-2000', 'apartment-my3-2000',
-                     'indoor-1-2000', 'indoor-1-my1-2000', 'grande_salle-my1-2000',
-                     'grande_salle-my2-2000', 'sandbox-2000']
+    hold_out_list = ['wombot-sit-front-jan-19-daytime']
 
     for hold_index, hold_name in enumerate(hold_out_list):
         sub_dir = main_dir + os.sep + hold_name
