@@ -277,23 +277,8 @@ tf_logits, tf_loss, tf_optimize = None, None, None
 tf_train_predictions, tf_test_predictions = None, None
 noncol_global_step, inc_noncol_gstep = None, None
 
-if __name__ == '__main__':
-
-    try:
-        opts, args = getopt.getopt(
-            sys.argv[1:], "", ["data-dir="])
-    except getopt.GetoptError as error:
-        print('<filename>.py --data-dir=<dirname>')
-        print(error)
-        sys.exit(2)
-
-    if len(opts) != 0:
-        for opt, arg in opts:
-            if opt == '--data-dir':
-                IMG_DIR = str(arg)
-
-    if IMG_DIR and not os.path.exists(IMG_DIR):
-        os.mkdir(IMG_DIR)
+def setup_loggers():
+    global logger,testPredictionLogger
 
     logger = logging.getLogger('Logger')
     logger.setLevel(logging.DEBUG)
@@ -313,7 +298,28 @@ if __name__ == '__main__':
     testPredFH.setLevel(logging.DEBUG)
     testPredictionLogger.addHandler(testPredFH)
 
-    config.DETACHED_TOP_LAYERS = True
+logger,testPredictionLogger = None, None
+
+if __name__ == '__main__':
+
+    try:
+        opts, args = getopt.getopt(
+            sys.argv[1:], "", ["data-dir="])
+    except getopt.GetoptError as error:
+        print('<filename>.py --data-dir=<dirname>')
+        print(error)
+        sys.exit(2)
+
+    if len(opts) != 0:
+        for opt, arg in opts:
+            if opt == '--data-dir':
+                IMG_DIR = str(arg)
+
+    if IMG_DIR and not os.path.exists(IMG_DIR):
+        os.mkdir(IMG_DIR)
+
+
+    setup_loggers()
 
     config.setup_user_dependent_hyperparameters(no_pooling=True,square_input=False)
     logger.info('='*80)

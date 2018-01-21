@@ -42,7 +42,7 @@ SOFT_COLLISION_LABEL = 0.05
 FC1_WEIGHTS = 600
 FC1_WEIGHTS_DETACHED = 200
 
-BATCH_SIZE = 50
+BATCH_SIZE = 10
 USE_DROPOUT = False
 IN_DROPOUT = 0.1
 LAYER_DROPOUT = 0.5
@@ -54,10 +54,7 @@ USE_CONV_STRIDE_WITHOUT_POOLING = True
 
 ACTIVATION = 'lrelu'
 
-
 FACTOR_OF_TRAINING_TO_USE = 1.0
-
-USE_DILATION = False
 
 USE_CONV_STRIDE_WITHOUT_POOLING = True
 fc_h, fc_w = -1,-1
@@ -73,7 +70,6 @@ def setup_user_dependent_hyperparameters(no_pooling,square_input):
 
     if square_input:
         TF_INPUT_AFTER_RESIZE = [64, 64, 3]
-
         use_square_input = (TF_INPUT_SIZE[0] == TF_INPUT_SIZE[1])
 
     USE_CONV_STRIDE_WITHOUT_POOLING = no_pooling
