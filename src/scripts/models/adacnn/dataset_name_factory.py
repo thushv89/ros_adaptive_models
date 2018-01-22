@@ -111,19 +111,32 @@ def new_get_noncol_train_data_sorted_by_direction_noncol_test_data():
 
     sub_dir = 'train'
     dataset_filenames = {'train_dataset':['..' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime' +
-                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords'],
+                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords',
+                                          '..' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon' +
+                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords',
+                                          '..' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon' +
+                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords',
+                                          '..' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2' +
+                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords'
+                                          ],
 
                          'valid_dataset':
                              None,
 
                          'test_dataset': ['..' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime' + os.sep +
-                                          'test' + os.sep + 'data-chunk-0.tfrecords']
-
+                                          'test' + os.sep + 'data-chunk-0.tfrecords',
+                                          '..' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon' + os.sep +
+                                          'test' + os.sep + 'data-chunk-0.tfrecords',
+                                          '..' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon' +
+                                          os.sep + 'test' + os.sep + 'data-chunk-0.tfrecords',
+                                          '..' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2' +
+                                          os.sep + 'test' + os.sep + 'data-chunk-0.tfrecords'
+                                          ]
                          }
 
-    dataset_sizes = {'train_dataset': 315*3,
+    dataset_sizes = {'train_dataset': [315*3, 418*3, 490*3, 522*3],
                      'valid_dataset': None,
-                     'test_dataset': 54*3}
+                     'test_dataset': [54*3, 67*3, 66*3, 89*3]}
 
 
 

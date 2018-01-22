@@ -83,13 +83,8 @@ def build_input_pipeline(filenames, batch_size, shuffle, training_data, use_oppo
     with tf.name_scope('sim_preprocess'):
         # FIFO Queue of file names
         # creates a FIFO queue until the reader needs them
-        filename_queue = tf.train.string_input_producer(filenames, capacity=2, shuffle=shuffle,name='string_input_producer')
+        filename_queue = tf.train.string_input_producer(filenames, capacity=2, shuffle=shuffle, num_epochs=1, name='string_input_producer')
 
-        for f in filenames:
-            if not tf.gfile.Exists(f):
-                raise ValueError('Failed to find file: ' + f)
-            else:
-                logger.info('File %s found.',f)
         # Reader which takes a filename queue and read() which outputs data one by one
         reader = tf.TFRecordReader()
 

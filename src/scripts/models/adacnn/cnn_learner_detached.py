@@ -13,6 +13,8 @@ import scipy.misc
 import cnn_variable_initializer
 import cnn_optimizer
 import dataset_name_factory
+import data_generator
+
 
 '''
 Network Architecture
@@ -23,7 +25,7 @@ conv1 -> conv2 -> conv3 --> staright/fc1 -> tanh (1)
                           > right/fc1 -> tanh(1)
 
 '''
-logging_level = logging.DEBUG
+logging_level = logging.INFO
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 logger = None
@@ -155,10 +157,10 @@ def calculate_loss(tf_logits,tf_labels):
 def inc_gstep(gstep):
     return tf.assign(gstep,gstep+1)
 
-def define_input_pipeline(dataset_filenames):
+def define_input_pipeline(dataset_filenames, shuffle):
 
     tf_img_ids, tf_images, tf_labels = models_utils.build_input_pipeline(
-        dataset_filenames['train_dataset'], config.BATCH_SIZE, shuffle=True,
+        dataset_filenames, config.BATCH_SIZE, shuffle=shuffle,
         training_data=True, use_opposite_label=False, inputs_for_sdae=False)
 
     return tf_img_ids, tf_images, tf_labels
@@ -198,30 +200,38 @@ def override_hyperparameters(hyperparams):
 
 
 
+def define_tf_ops():
 
-def define_tf_ops(tf_train_images, tf_train_labels, tf_test_images, tf_test_labels,
-                  tf_valid_image=None, tf_valid_labels=None):
     global tf_logits, tf_loss, tf_optimize
     global tf_train_predictions, tf_test_predictions
     global noncol_global_step, inc_noncol_gstep
+    global tf_train_image_placeholder, tf_train_label_placeholder
+    global tf_test_image_placeholder, tf_test_label_placeholder
+
+    tf_train_image_placeholder = tf.placeholder(tf.float32,[config.BATCH_SIZE] + config.TF_INPUT_AFTER_RESIZE,name='train_image_placeholder')
+    tf_train_label_placeholder = tf.placeholder(tf.float32,[config.BATCH_SIZE] + [config.TF_NUM_CLASSES], name='train_label_placeholder')
+
+    tf_test_image_placeholder = tf.placeholder(tf.float32, [config.BATCH_SIZE] + config.TF_INPUT_AFTER_RESIZE,
+                                                name='test_image_placeholder')
+    tf_test_label_placeholder = tf.placeholder(tf.float32, [config.BATCH_SIZE] + [config.TF_NUM_CLASSES], name='test_label_placeholder')
 
     define_conv_dropout_placeholder()
 
     noncol_global_step = tf.Variable(0, trainable=False)
     inc_noncol_gstep = inc_gstep(noncol_global_step)
 
-    tf_logits = logits_detached(tf_train_images, True)
+    tf_logits = logits_detached(tf_train_image_placeholder, True)
 
-    tf_train_predictions, tf_train_actuals = predictions_and_labels_with_inputs(tf_train_images, tf_train_labels)
+    tf_train_predictions, tf_train_actuals = predictions_and_labels_with_inputs(tf_train_image_placeholder, tf_train_label_placeholder)
 
-    tf_loss = calculate_loss(tf_logits, tf_train_labels)
+    tf_loss = calculate_loss(tf_logits, tf_train_label_placeholder)
 
     tf_optimize, _ = cnn_optimizer.optimize_model_detached(tf_loss, noncol_global_step)
 
-    tf_test_predictions, tf_test_actuals = predictions_and_labels_with_inputs(tf_test_images, tf_test_labels)
+    tf_test_predictions, tf_test_actuals = predictions_and_labels_with_inputs(tf_test_image_placeholder, tf_test_label_placeholder)
 
 
-def train_and_test(train_epochs, test_interval, separate_validation_set=False):
+'''def train_and_test(train_epochs, test_interval, separate_validation_set=False):
     global tf_logits
     for epoch in range(train_epochs):
         avg_loss = []
@@ -269,13 +279,16 @@ def train_and_test(train_epochs, test_interval, separate_validation_set=False):
                     for pred, lbl in zip(test_predictions, test_predictions):
                         logger.debug('\t%s;%s', pred, lbl)
 
-            logger.info('\t\t Test accuracy: %.3f' % np.mean(avg_test_accuracy))
-
+            logger.info('\t\t Test accuracy: %.3f' % np.mean(avg_test_accuracy))'''
 
 
 tf_logits, tf_loss, tf_optimize = None, None, None
 tf_train_predictions, tf_test_predictions = None, None
 noncol_global_step, inc_noncol_gstep = None, None
+tf_filename_placeholder, tf_test_filename_placeholder = None, None
+tf_train_image_placeholder, tf_train_label_placeholder = None, None
+tf_test_image_placeholder, tf_test_label_placeholder = None, None
+
 
 def setup_loggers():
     global logger,testPredictionLogger
@@ -304,24 +317,31 @@ if __name__ == '__main__':
 
     try:
         opts, args = getopt.getopt(
-            sys.argv[1:], "", ["data-dir="])
+            sys.argv[1:], "", ["data-dir=","use-best-hyperparameters="])
     except getopt.GetoptError as error:
         print('<filename>.py --data-dir=<dirname>')
         print(error)
         sys.exit(2)
 
+    use_best_hyperparameters = False
+
     if len(opts) != 0:
         for opt, arg in opts:
             if opt == '--data-dir':
                 IMG_DIR = str(arg)
+            if opt == 'use-best-hyperparameters':
+                use_best_hyperparameters = bool(int(arg))
 
     if IMG_DIR and not os.path.exists(IMG_DIR):
         os.mkdir(IMG_DIR)
 
-
     setup_loggers()
 
-    config.setup_user_dependent_hyperparameters(no_pooling=True,square_input=False)
+    if not use_best_hyperparameters:
+        config.setup_user_dependent_hyperparameters(no_pooling=True,square_input=False)
+    else:
+        config.setup_best_user_dependent_hyperparameters()
+
     logger.info('='*80)
     logger.info('Scope list: %s',scope_list)
     logger.info('Input of size: %s',config.TF_INPUT_SIZE)
@@ -362,155 +382,209 @@ if __name__ == '__main__':
     accuracyFH.setFormatter(logging.Formatter('%(message)s'))
     accuracyFH.setLevel(logging.INFO)
     accuracy_logger.addHandler(accuracyFH)
-    accuracy_logger.info('#Epoch; Non-collision Accuracy;Non-collision Accuracy(Soft);Collision Accuracy;' +
-                         'Collision Accuracy (Soft); Non-collision loss; Collision loss;' +
-                         'Preci-NC-L,Preci-NC-S,Preci-NC-R;;Rec-NC-L,Rec-NC-S,Rec-NC-R;;' +
-                         'Preci-C-L,Preci-C-S,Preci-C-R;;Rec-C-L,Rec-C-S,Rec-C-R;')
-
-    config.BATCH_SIZE = 10
+    accuracy_logger.info('#Train EnvID, Epoch, Test EnvID, Non-collision Accuracy,Non-collision Accuracy(Soft),Non-collision loss,' +
+                         'Preci-NC-L,Preci-NC-S,Preci-NC-R;;Rec-NC-L,Rec-NC-S,Rec-NC-R')
 
     graph = tf.Graph()
     configp = tf.ConfigProto(allow_soft_placement=True,log_device_placement=False)
     sess = tf.InteractiveSession(graph=graph,config=configp)
+
 
     with sess.as_default() and graph.as_default():
         cnn_variable_initializer.set_from_main(sess)
         cnn_variable_initializer.build_tensorflw_variables_detached()
         models_utils.set_from_main(sess,logger)
 
-        tf_train_img_ids, tf_train_images, tf_train_labels = define_input_pipeline(dataset_filenames)
-        tf_test_img_ids, tf_test_images,tf_test_labels = models_utils.build_input_pipeline(
-            dataset_filenames['test_dataset'],config.BATCH_SIZE,shuffle=True,
-            training_data=False,use_opposite_label=False,inputs_for_sdae=False)
+        train_data_gen = data_generator.DataGenerator(
+            config.BATCH_SIZE, config.TF_NUM_CLASSES, dataset_sizes['train_dataset'],
+            config.TF_INPUT_AFTER_RESIZE, sess, dataset_filenames['train_dataset']
+        )
 
-        define_tf_ops(tf_train_images, tf_train_labels, tf_test_images, tf_test_labels)
+        test_data_gen = data_generator.DataGenerator(
+            config.BATCH_SIZE, config.TF_NUM_CLASSES, dataset_sizes['test_dataset'],
+            config.TF_INPUT_AFTER_RESIZE, sess, dataset_filenames['test_dataset']
+        )
 
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord, sess=sess)
+        tf_train_img_ids, tf_train_images, tf_train_labels = train_data_gen.tf_augment_data_with()
+        tf_test_img_ids, tf_test_images, tf_test_labels = test_data_gen.tf_augment_data_with()
+
+        define_tf_ops()
 
         tf.global_variables_initializer().run(session=sess)
 
-        for epoch in range(250):
-            avg_loss = []
+        for train_env_idx in range(4):
 
-            # Training Phase
+            logger.info('Training with data of environment %d',train_env_idx)
 
-            for step in range(dataset_sizes['train_dataset']//config.BATCH_SIZE):
-                l1, _ = sess.run([tf_loss, tf_optimize],feed_dict=get_dropout_placeholder_dict())
-                avg_loss.append(l1)
+            for epoch in range(250):
 
-            logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,np.mean(avg_loss)))
+                # ========================================================================
+                # Train on Training Dataset
+                env_train_img_ids, env_train_images, env_train_labels = define_input_pipeline(
+                    [dataset_filenames['train_dataset'][train_env_idx]], True)
+
+                avg_loss = []
+
+                for step in range(dataset_sizes['train_dataset']//config.BATCH_SIZE):
+                    feed_dict = get_dropout_placeholder_dict()
+
+                    tr_img_id, tr_images, tr_labels =  train_data_gen.sample_a_batch_from_data(train_env_idx,shuffle=True)
+                    feed_dict.update({train_data_gen.tf_image_ph: tr_images, train_data_gen.tf_labels_ph: tr_labels})
+
+                    l1, _ = sess.run([tf_loss, tf_optimize],feed_dict=feed_dict)
+                    avg_loss.append(l1)
+
+                # =========================================================================
+
+                logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,np.mean(avg_loss)))
+
+                avg_train_accuracy = []
+
+                # =========================================================================
+                # Prediction for Training data
+
+                env_train_img_ids, env_train_images, env_train_labels = define_input_pipeline(
+                    [dataset_filenames['train_dataset'][train_env_idx]], True)
+
+                # Prediction Phase
+
+                for step in range(dataset_sizes['train_dataset'] // config.BATCH_SIZE):
+                    proc_imgs, proc_labels = sess.run([env_train_images, env_train_labels])
+
+                    feed_dict = {tf_train_image_placeholder: proc_imgs, tf_train_label_placeholder: proc_labels}
+
+                    train_predictions = sess.run(tf_train_predictions, feed_dict=feed_dict)
+
+                    assert train_predictions.shape[0]==proc_labels.shape[0]
+                    avg_train_accuracy.append(
+                        models_utils.soft_accuracy(
+                            train_predictions, proc_labels,
+                            use_argmin=False,max_thresh=max_thresh,
+                            min_thresh=min_thresh
+                        )
+                    )
+
+                    if step < 2:
+                        logger.debug('Predictions for Non-Collided data')
+                        for pred, lbl in zip(train_predictions, proc_labels):
+                            logger.debug('\t%s;%s', pred, lbl)
+
+                # ============================================================================
+
+                logger.info('\t\t Training accuracy: %.3f' % np.mean(avg_train_accuracy))
+                tf.Session.reset(None,containers='input-pipelines')
+                sess = tf.InteractiveSession(graph=graph, config=configp)
+
+                # Test Phase
+                if (epoch+1)%5==0:
+                    logger.info('\tTesting phase (Epoch %d)',epoch+1)
+                    for test_env_idx in range(4):
+                        logger.info('\t\tTesting environment (%d)',test_env_idx)
+                        test_accuracy = [] # accuracy by argmax
+                        soft_test_accuracy = [] # accuracy if the prediction entry for the non-zero entry of the label exceeds max thres
+                        all_predictions, all_labels, all_img_ids, all_images = None, None, None, None
+
+                        test_image_index = 0
+
+                        env_test_img_ids, env_test_images, env_test_labels = define_input_pipeline(
+                            [dataset_filenames['test_dataset'][test_env_idx]], False)
+
+                        coord = tf.train.Coordinator()
+                        threads = tf.train.start_queue_runners(coord=coord, sess=sess)
+
+                        try:
+                            step = 0
+                            while not coord.should_stop():
+
+                                proc_imgs, proc_labels, proc_img_ids = sess.run(
+                                    [env_test_images, env_test_labels, env_test_img_ids])
+                                feed_dict = {tf_test_image_placeholder: proc_imgs,
+                                             tf_test_label_placeholder: proc_labels}
+
+                                predicted_labels = sess.run(tf_test_predictions,
+                                    feed_dict = feed_dict
+                                )
+
+                                test_accuracy.append(models_utils.accuracy(predicted_labels,proc_labels,use_argmin=False))
+                                soft_test_accuracy.append(models_utils.soft_accuracy(predicted_labels,proc_labels,use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh))
+
+                                if all_predictions is None or all_labels is None:
+                                    all_predictions = predicted_labels
+                                    all_labels = proc_labels
+                                    all_img_ids = proc_img_ids
+                                    all_images = proc_imgs
+
+                                else:
+                                    all_predictions = np.append(all_predictions,predicted_labels,axis=0)
+                                    all_labels = np.append(all_labels,proc_labels,axis=0)
+                                    all_img_ids = np.append(all_img_ids, proc_img_ids, axis=0)
+                                    all_images = np.append(all_images, proc_imgs, axis = 0)
+
+                                if step<2:
+                                    logger.debug('Test Predictions (Non-Collisions)')
+                                    for pred,act in zip(predicted_labels,proc_labels):
+                                        pred_string = ''.join(['%.3f'%p+',' for p in pred.tolist()])
+                                        act_string = ''.join(['%.1f'%a +',' for a in act.tolist()])
+                                        predictionlogger.info('%d:%s:%s',test_image_index,act_string,pred_string)
+                                        if step < 2:
+                                            logger.debug('%d:%s:%s',test_image_index,act_string,pred_string)
+                                        test_image_index += 1
+                                step += 1
+                        finally:
+                            coord.request_stop()
+
+                    #Write predictions to log file
+                    testPredictionLogger.info('Predictions for Non-Collisions (Epoch %d)', epoch)
+                    test_image_index = 0
+                    for pred, act in zip(all_predictions, all_labels):
+                        pred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
+                        act_string = ''.join(['%.3f' % a + ',' for a in act.tolist()])
+                        testPredictionLogger.info('%d:%s:%s', test_image_index, act_string, pred_string)
+                        test_image_index += 1
+                    testPredictionLogger.info('\n')
+
+                    # Calculating Precisio Recall
+                    test_noncol_precision = models_utils.precision_multiclass(all_predictions, all_labels, use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh)
+                    test_noncol_recall = models_utils.recall_multiclass(all_predictions,all_labels, use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh)
+
+                    precision_string = ''.join(['%.3f;' % test_noncol_precision[pi] for pi in range(3)])
+                    recall_string = ''.join(['%.3f;' % test_noncol_recall[ri] for ri in range(3)])
+
+                    predictionlogger.info('\n')
+                    print('\t\t\tAverage test accuracy: %.5f '%np.mean(test_accuracy))
+                    print('\t\t\tAverage test accuracy(soft): %.5f'%np.mean(soft_test_accuracy))
+                    print('\t\t\tAverage test precision: %s', test_noncol_precision)
+                    print('\t\t\tAverage test recall: %s', test_noncol_recall)
+    
+                    # saving figures
+
+                    # ==============================================================
+                    # create a dictionary img_id => image
+                    # This part of code is used to generate images for correctly classified images
+
+                    '''image_list = np.split(all_images,all_images.shape[0])
+                    id_list = all_img_ids.tolist()
+                    dict_id_image = dict(zip(id_list,image_list))
+    
+                    correct_hard_ids_sorted = {}
+                    predicted_hard_ids_sorted = {}
+                    for di,direct in enumerate(['left','straight','right']):
+                        correct_hard_ids_sorted[direct] = models_utils.get_id_vector_for_correctly_predicted_samples(
+                            all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
+                        predicted_hard_ids_sorted[direct] = models_utils.get_id_vector_for_predicted_samples(
+                            all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
+                    logger.info('correct hard img ids for: %s',correct_hard_ids_sorted)
+                    visualizer.save_fig_with_predictions_for_direction(correct_hard_ids_sorted, dict_id_image,
+                                                                       IMG_DIR + os.sep + 'correct_predicted_results_hard_%d.png'%(epoch))
+                    visualizer.save_fig_with_predictions_for_direction(predicted_hard_ids_sorted, dict_id_image,
+                                                                       IMG_DIR + os.sep + 'predicted_results_hard_%d.png' % (
+                                                                       epoch))'''
+                    # ============================================================================
+
+                    accuracy_logger.info('%d,%d,%d,%.3f,%.3f,%.3f,%s,%s',
+                                         train_env_idx,epoch,test_env_idx,np.mean(test_accuracy),np.mean(soft_test_accuracy),
+                                         np.mean(avg_loss), precision_string, recall_string)
 
 
-            avg_train_accuracy = []
-
-            # Prediction Phase
-            for step in range(dataset_sizes['train_dataset'] // config.BATCH_SIZE):
-                train_predictions,train_actuals = sess.run([tf_train_predictions,tf_train_labels])
-                avg_train_accuracy.append(models_utils.soft_accuracy(train_predictions, train_actuals, use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh))
-
-                if step < 2:
-                    logger.debug('Predictions for Non-Collided data')
-                    for pred, lbl in zip(train_predictions, train_actuals):
-                        logger.debug('\t%s;%s', pred, lbl)
-
-            logger.info('\t\t Training accuracy: %.3f' % np.mean(avg_train_accuracy))
-
-            # Test Phase
-            '''if (epoch+1)%5==0:
-                test_accuracy = []
-                soft_test_accuracy = []
-                all_predictions, all_labels, all_img_ids, all_images = None, None, None, None
-                test_image_index = 0
-                for step in range(dataset_sizes['test_dataset']//config.BATCH_SIZE):
-                    predicted_labels,actual_labels,test_img_ids, test_images = sess.run([tf_test_predictions,tf_test_actuals,tf_test_img_ids, tf_test_images])
-
-                    test_accuracy.append(models_utils.accuracy(predicted_labels,actual_labels,use_argmin=False))
-                    soft_test_accuracy.append(models_utils.soft_accuracy(predicted_labels,actual_labels,use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh))
-
-                    if all_predictions is None or all_labels is None:
-                        all_predictions = predicted_labels
-                        all_labels = actual_labels
-                        all_img_ids = test_img_ids
-                        all_images = test_images
-
-                    else:
-                        all_predictions = np.append(all_predictions,predicted_labels,axis=0)
-                        all_labels = np.append(all_labels,actual_labels,axis=0)
-                        all_img_ids = np.append(all_img_ids, test_img_ids, axis=0)
-                        all_images = np.append(all_images, test_images, axis = 0)
-
-                    if step<2:
-                        logger.debug('Test Predictions (Non-Collisions)')
-                        for pred,act in zip(predicted_labels,actual_labels):
-                            pred_string = ''.join(['%.3f'%p+',' for p in pred.tolist()])
-                            act_string = ''.join(['%.1f'%a +',' for a in act.tolist()])
-                            predictionlogger.info('%d:%s:%s',test_image_index,act_string,pred_string)
-                            if step < 2:
-                                logger.debug('%d:%s:%s',test_image_index,act_string,pred_string)
-                            test_image_index += 1
-
-                testPredictionLogger.info('Predictions for Non-Collisions (Epoch %d)', epoch)
-                test_image_index = 0
-                for pred, act in zip(all_predictions, all_labels):
-                    pred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
-                    act_string = ''.join(['%.3f' % a + ',' for a in act.tolist()])
-                    testPredictionLogger.info('%d:%s:%s', test_image_index, act_string, pred_string)
-                    test_image_index += 1
-                testPredictionLogger.info('\n')
-
-                test_noncol_precision = models_utils.precision_multiclass(all_predictions, all_labels, use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh)
-                test_noncol_recall = models_utils.recall_multiclass(all_predictions,all_labels, use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh)
-                predictionlogger.info('\n')
-                print('\t\tAverage test accuracy: %.5f '%np.mean(test_accuracy))
-                print('\t\tAverage test accuracy(soft): %.5f'%np.mean(soft_test_accuracy))
-                print('\t\tAverage test precision: %s', test_noncol_precision)
-                print('\t\tAverage test recall: %s', test_noncol_recall)
-
-                # saving figures
-
-                # create a dictionary img_id => image
-                image_list = np.split(all_images,all_images.shape[0])
-                id_list = all_img_ids.tolist()
-                dict_id_image = dict(zip(id_list,image_list))
-
-                correct_hard_ids_sorted = {}
-                predicted_hard_ids_sorted = {}
-                for di,direct in enumerate(['left','straight','right']):
-                    correct_hard_ids_sorted[direct] = models_utils.get_id_vector_for_correctly_predicted_samples(
-                        all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
-                    predicted_hard_ids_sorted[direct] = models_utils.get_id_vector_for_predicted_samples(
-                        all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
-                logger.info('correct hard img ids for: %s',correct_hard_ids_sorted)
-                visualizer.save_fig_with_predictions_for_direction(correct_hard_ids_sorted, dict_id_image,
-                                                                   IMG_DIR + os.sep + 'correct_predicted_results_hard_%d.png'%(epoch))
-                visualizer.save_fig_with_predictions_for_direction(predicted_hard_ids_sorted, dict_id_image,
-                                                                   IMG_DIR + os.sep + 'predicted_results_hard_%d.png' % (
-                                                                   epoch))
-
-                    #correct_soft_img_ids = models_utils.get_accuracy_vector_with_direction(
-                    #    all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=True, use_argmin=False)
-
-                testPredictionLogger.info('Predictions for Collisions (Epoch %d)',epoch)
-                test_image_index = 0
-                for pred, act in zip(all_bump_predictions, all_bump_labels):
-                    bpred_string = ''.join(['%.3f' % p + ',' for p in pred.tolist()])
-                    bact_string = ''.join(['%.3f' % a + ',' for a in act.tolist()])
-                    testPredictionLogger.info('%d:%s:%s', test_image_index, bact_string, bpred_string)
-                    test_image_index += 1
-                testPredictionLogger.info('\n')
-
-
-                precision_string = ''.join(['%.3f,'%test_noncol_precision[pi] for pi in range(3)])
-                recall_string = ''.join(['%.3f,'%test_noncol_recall[ri] for ri in range(3)])
-
-                col_precision_string = ''.join(['%.3f,' % test_col_precision[pi] for pi in range(3)])
-                col_recall_string = ''.join(['%.3f,' % test_col_recall[ri] for ri in range(3)])
-
-                accuracy_logger.info('%d;%.3f;%.3f;%.3f;%.3f;%.5f;%.5f;%s;%s;%s;%s',
-                                     epoch,np.mean(test_accuracy),np.mean(soft_test_accuracy),
-                                     np.mean(bump_test_accuracy),np.mean(bump_soft_accuracy),
-                                     np.mean(avg_loss), np.mean(avg_bump_loss),
-                                     precision_string,recall_string,col_precision_string,col_recall_string)'''
         coord.request_stop()
         coord.join(threads)

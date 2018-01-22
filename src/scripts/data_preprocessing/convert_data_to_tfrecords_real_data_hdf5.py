@@ -6,6 +6,7 @@ import config
 import logging
 import sys
 import scipy.misc
+import h5py
 
 '''
 ======================== convert_data_to_tfrecords ===============================
@@ -24,52 +25,6 @@ def _float_feature(value):
 def _bytes_feature(value):
   return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
-
-def dump_to_tfrecord_suffled(data_folder, data_save_dir, drive_direct_dict, image_ids,image_fname_prefix):
-    """
-    Converts a dataset to tfrecords.
-    :param data_folder:
-    :param name:
-    :return:
-    """
-    #print(os.getcwd()) # use to get the current working directory
-    print('Running shuffled save')
-    items_written = 0
-
-
-    # create 3 tf records each for each direction
-
-    tfrecords_filename = data_save_dir + os.sep + 'image-shuffled.tfrecords'
-    writer = tf.python_io.TFRecordWriter(tfrecords_filename)
-
-    # create example for each image write with the writer
-    np.random.shuffle(image_ids)
-
-    file_size_stat_dict = {}
-    for img_id in image_ids:
-        im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
-        im.thumbnail((RESIZE_W,RESIZE_H), Image.ANTIALIAS)
-        im_mat = np.array(im,dtype=np.float32)
-        (rows,cols,ch) = im_mat.shape
-        im_raw = im_mat.tostring()
-
-        example = tf.train.Example(features=tf.train.Features(feature={
-            config.FEAT_IMG_ID: _int64_feature(img_id),
-            config.FEAT_IMG_HEIGHT: _int64_feature(rows),
-            config.FEAT_IMG_WIDTH: _int64_feature(cols),
-            config.FEAT_IMG_CH: _int64_feature(ch),
-            config.FEAT_IMG_RAW: _bytes_feature(im_raw),
-            config.FEAT_LABEL: _int64_feature(drive_direct_dict[img_id])
-        }))
-        writer.write(example.SerializeToString())
-
-        items_written += 1
-
-    file_size_stat_dict[tfrecords_filename]=items_written-1
-
-    writer.close()
-
-    return file_size_stat_dict
 
 def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
                                image_ids,image_fname_prefix, n_direction, max_instances_per_file=None,
@@ -91,8 +46,6 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
 
     chunk_index = 0
 
-    tfrecords_filename = save_dir + os.sep + 'data-chunk-%d.tfrecords'%chunk_index
-    writer = tf.python_io.TFRecordWriter(tfrecords_filename)
 
     file_size_stat_dict = {}
     if save_images_for_testing:
@@ -109,24 +62,28 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
 
     if shuffle:
         np.random.shuffle(image_ids)
+
+    hdf5_file = h5py.File(save_dir + os.sep + 'image-shuffled.hdf5', "w")
+
+    img_id_arr = None
+    images_arr = None
+    labels_arr = None
+
     for img_id in image_ids:
         im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
         im.thumbnail((RESIZE_W, RESIZE_H), Image.ANTIALIAS)
         im_mat = np.array(im, dtype=np.float32)
         drive_direction = drive_direct_dict[img_id]
 
-        (rows,cols,ch) = im_mat.shape
-        im_raw = im_mat.tostring()
+        if img_id_arr is None or images_arr is None or labels_arr is None:
+            img_id_arr = np.array([img_id], dtype=np.int32)
+            images_arr = np.array(np.expand_dims(im_mat, axis=0), dtype=np.float32)
+            labels_arr = np.array([[drive_direction]], dtype=np.int32)
+        else:
+            img_id_arr = np.append(img_id_arr, [img_id], axis=0)
+            images_arr = np.append(images_arr, np.expand_dims(im_mat,axis=0), axis=0)
+            labels_arr = np.append(labels_arr, [[drive_direction]], axis=0)
 
-        example = tf.train.Example(features=tf.train.Features(feature={
-            config.FEAT_IMG_ID: _int64_feature(img_id),
-            config.FEAT_IMG_HEIGHT: _int64_feature(rows),
-            config.FEAT_IMG_WIDTH: _int64_feature(cols),
-            config.FEAT_IMG_CH: _int64_feature(ch),
-            config.FEAT_IMG_RAW: _bytes_feature(im_raw),
-            config.FEAT_LABEL: _int64_feature(drive_direction)
-        }))
-        writer.write(example.SerializeToString())
         items_written_per_chunk += 1
 
         # save a flipped version of the image
@@ -149,154 +106,27 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
                 elif drive_direct_dict[img_id] == 2:
                     flip_direction = 0
 
+            img_id_arr = np.append(img_id_arr, [img_id], axis=0)
+            images_arr = np.append(images_arr, np.expand_dims(im_mat_flip, axis=0), axis=0)
+            labels_arr = np.append(labels_arr, [[flip_direction]], axis=0)
 
-            im_raw_flip = im_mat_flip.tostring()
-
-            flip_example = tf.train.Example(features=tf.train.Features(feature={
-                config.FEAT_IMG_ID: _int64_feature(img_id),
-                config.FEAT_IMG_HEIGHT: _int64_feature(rows),
-                config.FEAT_IMG_WIDTH: _int64_feature(cols),
-                config.FEAT_IMG_CH: _int64_feature(ch),
-                config.FEAT_IMG_RAW: _bytes_feature(im_raw_flip),
-                config.FEAT_LABEL: _int64_feature(flip_direction)
-            }))
-            writer.write(flip_example.SerializeToString())
             items_written_per_chunk += 1
 
-        if max_instances_per_file is not None and items_written_per_chunk>=max_instances_per_file:
-            logger.info('image-shuffled-part-%d.tfrecords (Size): %d', chunk_index,
-                        items_written_per_chunk)
-            file_size_stat_dict['image-shuffled-part-%d.tfrecords (Size): %d'%(chunk_index,
-                        items_written_per_chunk)] = items_written_per_chunk
-            writer.close()
-            items_written_per_chunk = 0
-            chunk_index += 1
-            tfrecords_filename = save_dir + os.sep + 'image-shuffled-part-%d.tfrecords' % chunk_index
-            writer = tf.python_io.TFRecordWriter(tfrecords_filename)
+
+    hdf5_img_id_data = hdf5_file.create_dataset('image_ids', img_id_arr.shape, dtype='f')
+    hdf5_img_data = hdf5_file.create_dataset('images', images_arr.shape, dtype='f')
+    hdf5_label_data = hdf5_file.create_dataset('labels', labels_arr.shape, dtype='f')
+
+    hdf5_img_id_data[:] = img_id_arr
+    hdf5_img_data[:, :, :, :] = images_arr
+    hdf5_label_data[:, 0] = labels_arr[:, 0]
 
     logger.info('image-shuffled-part-%d.tfrecords (Size): %d', chunk_index,
                 items_written_per_chunk)
     file_size_stat_dict['image-shuffled-part-%d.tfrecords (Size): %d' % (chunk_index,
                                                                          items_written_per_chunk)] = items_written_per_chunk
-    writer.close()
 
     return file_size_stat_dict
-
-def dump_to_tfrecord_sorted_by_direction(
-        data_folder, save_dir, img_id_to_direction_dict, image_ids, image_fname_prefix,
-        n_direction, max_instances_per_file, augment_data):
-
-    """
-    Converts a dataset to tfrecords. Seperate data by direction
-    :param data_folder:
-    :param name:
-    :return:
-    """
-    #print(os.getcwd()) # use to get the current working directory
-
-    file_size_stat_dict = {}
-    tfrecords_filenames = []
-    writers = []
-    items_for_direction = [0 for _ in range(n_direction)]
-    file_indices = [0 for _ in range(n_direction)]
-    size_per_file = [0 for _ in range(n_direction)]
-    # create 3 tf records each for each direction
-    for di in range(n_direction):
-        tfrecords_filenames.append(save_dir + os.sep + 'image-%d-part-%d.tfrecords'%(di, file_indices[di]))
-        writers.append(tf.python_io.TFRecordWriter(tfrecords_filenames[di]))
-
-    # create example for each image write with the writer
-    for img_id in image_ids:
-        direction = int(img_id_to_direction_dict[img_id])
-        im = Image.open(data_folder + os.sep + image_fname_prefix + '_%d.png'%img_id)
-        im.thumbnail((RESIZE_W, RESIZE_H), Image.ANTIALIAS)
-        im_mat = np.asarray(im,dtype=np.float32)
-
-        (rows,cols,ch) = im_mat.shape
-        im_raw = im_mat.tostring()
-
-        example = tf.train.Example(features=tf.train.Features(feature={
-            config.FEAT_IMG_ID: _int64_feature(img_id),
-            config.FEAT_IMG_HEIGHT: _int64_feature(rows),
-            config.FEAT_IMG_WIDTH: _int64_feature(cols),
-            config.FEAT_IMG_CH: _int64_feature(ch),
-            config.FEAT_IMG_RAW: _bytes_feature(im_raw),
-            config.FEAT_LABEL: _int64_feature(img_id_to_direction_dict[img_id])
-        }))
-        writers[direction].write(example.SerializeToString())
-        items_for_direction[direction] += 1
-        size_per_file[direction] += 1
-
-        # save a flipped version of the image
-        if augment_data:
-            flip_direction = img_id_to_direction_dict[img_id]
-            im_mat_flip = np.fliplr(im_mat)
-
-            if n_direction == 5:
-                if img_id_to_direction_dict[img_id] == 0:
-                    flip_direction = 4
-                elif img_id_to_direction_dict[img_id] == 1:
-                    flip_direction = 3
-                elif img_id_to_direction_dict[img_id] == 4:
-                    flip_direction = 0
-                elif img_id_to_direction_dict[img_id] == 3:
-                    flip_direction = 1
-
-            elif n_direction == 3:
-                if img_id_to_direction_dict[img_id] == 0:
-                    flip_direction = 2
-                elif img_id_to_direction_dict[img_id] == 2:
-                    flip_direction = 0
-
-            else:
-                raise NotImplementedError
-
-            im_raw_flip = im_mat_flip.tostring()
-
-            flip_example = tf.train.Example(features=tf.train.Features(feature={
-                config.FEAT_IMG_ID: _int64_feature(img_id),
-                config.FEAT_IMG_HEIGHT: _int64_feature(rows),
-                config.FEAT_IMG_WIDTH: _int64_feature(cols),
-                config.FEAT_IMG_CH: _int64_feature(ch),
-                config.FEAT_IMG_RAW: _bytes_feature(im_raw_flip),
-                config.FEAT_LABEL: _int64_feature(flip_direction)
-            }))
-            writers[flip_direction].write(flip_example.SerializeToString())
-            items_for_direction[flip_direction] += 1
-            size_per_file[flip_direction] += 1
-
-        # update tf record filename, writer
-        if items_for_direction[direction]>=max_instances_per_file:
-            print('Items for %d direction exceeds max'%direction)
-            logger.info( 'image-%d-part-%d.tfrecords (Size): %d',direction, file_indices[direction],size_per_file[direction])
-            file_size_stat_dict['image-%d-part-%d.tfrecords'%(direction, file_indices[direction])] = size_per_file[direction]
-
-            items_for_direction[direction] = 0
-            file_indices[direction] += 1
-            writers[direction].close()
-            tfrecords_filenames[direction] = (save_dir + os.sep + 'image-%d-part-%d.tfrecords' % (direction,file_indices[direction]))
-            writers[direction]=tf.python_io.TFRecordWriter(tfrecords_filenames[direction])
-
-            size_per_file[direction] = 0
-
-        if augment_data and items_for_direction[flip_direction]>=max_instances_per_file:
-            print('Items for %d direction exceeds max'%flip_direction)
-            items_for_direction[flip_direction] = 0
-            file_indices[flip_direction] += 1
-            writers[flip_direction].close()
-            tfrecords_filenames[flip_direction] = (save_dir + os.sep + 'image-%d-part-%d.tfrecords' % (flip_direction,file_indices[flip_direction]))
-            writers[flip_direction]=tf.python_io.TFRecordWriter(tfrecords_filenames[flip_direction])
-            logger.info( 'image-%d-part-%d.tfrecords (Size): %d',flip_direction, file_indices[flip_direction],size_per_file[flip_direction])
-            size_per_file[flip_direction] = 0
-
-    for di in range(3):
-        logger.info('image-%d-part-%d.tfrecords (Size): %d', di, file_indices[di],
-                    size_per_file[di])
-        file_size_stat_dict['image-%d-part-%d.tfrecords'%(direction, file_indices[direction])] = size_per_file[di]
-        writers[di].close()
-
-    return file_size_stat_dict
-
 
 def get_image_indices_with_uniform_distribution(direction_to_img_id_dict):
     global logger
@@ -498,25 +328,26 @@ if __name__ == '__main__':
     logger.addHandler(console)
     logger.addHandler(fileHandler)
 
-    #is_bump_list = [False, False, False]
-
-    #data_folders_list = [
-    #    '.' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime',
-    #    '.' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon',
-    #    '.' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2'
-    #]
-
-    #test_range = [(1538,1988),(472,922),(452,902)]
-
-    is_bump_list = [False, False, False]
+    is_bump_list = [False, False, False, False]
 
     data_folders_list = [
+        '.' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime',
         '.' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon',
         '.' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon',
         '.' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2'
     ]
 
-    test_range = [(527,977),(472,922),(452,902)]
+    test_range = [(1538,1988),(527,977),(472,922),(452,902)]
+
+    #is_bump_list = [False, False, False]
+
+    #data_folders_list = [
+    #    '.' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon',
+    #    '.' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon',
+    #    '.' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2'
+    #]
+
+    #test_range = [(527,977),(472,922),(452,902)]
 
     save_training_data(data_folders_list, is_bump_list, test_range)
     save_testing_data(data_folders_list, is_bump_list, test_range)
