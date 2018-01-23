@@ -153,8 +153,8 @@ def make_dict_with_hyperparameters():
     hyps['in_dropout'] = config.IN_DROPOUT
     hyps['layer_dropout'] = config.LAYER_DROPOUT
     hyps['l2_beta'] = config.L2_BETA
-    hyps['var_shapes'] = config.TF_ANG_VAR_SHAPES_DETACHED
-    hyps['strides'] = config.TF_ANG_STRIDES
+    hyps['var_shapes'] = dict(config.TF_ANG_VAR_SHAPES_DETACHED)
+    hyps['strides'] = dict(config.TF_ANG_STRIDES)
     return hyps
 
 
@@ -174,6 +174,7 @@ def pretty_print_hyperparameters(logger):
     logger.info(config.TF_ANG_STRIDES)
     logger.info('=' * 20)
     logger.info('='*40)
+
 
 if __name__ == '__main__':
 

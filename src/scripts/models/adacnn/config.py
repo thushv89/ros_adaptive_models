@@ -120,7 +120,7 @@ def setup_best_user_dependent_hyperparameters():
     FC1_WEIGHTS_DETACHED = 100
 
     TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3', 'conv4', 'fc1', 'out']
-    TF_ANG_STRIDES = {'conv1': [1, 2, 4, 1], 'conv2': [1, 2, 4, 1], 'conv3': [1, 1, 1, 1], 'conv4': [1, 2, 2, 1],
+    TF_ANG_STRIDES = {'conv1': [1, 2, 2, 1], 'conv2': [1, 2, 2, 1], 'conv3': [1, 2, 2, 1], 'conv4': [1, 1, 1, 1],
                       'conv5': [1, 1, 1, 1]}
 
     fc_h, fc_w = models_utils.get_fc_height_width(TF_INPUT_SIZE, TF_ANG_SCOPES, TF_ANG_STRIDES)
@@ -129,8 +129,8 @@ def setup_best_user_dependent_hyperparameters():
 
     TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [2, 4, 3, 32], 'pool1': [1, 4, 8, 1], 'conv2': [4, 8, 32, 32],
                                   'pool2': [1, 3, 3, 1],
-                                  'conv3': [4, 8, 32, 128], 'pool3': [1, 3, 3, 1], 'conv4': [2, 2, 128, 128],
-                                  'fc1': [fc_h * fc_w * 128, FC1_WEIGHTS_DETACHED],
+                                  'conv3': [2, 4, 32, 64], 'pool3': [1, 3, 3, 1], 'conv4': [2, 2, 64, 64],
+                                  'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS_DETACHED],
                                   'out': [FC1_WEIGHTS_DETACHED, 1]}
 
     TF_FIRST_FC_ID = 'fc1'

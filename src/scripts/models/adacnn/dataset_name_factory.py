@@ -111,26 +111,26 @@ def new_get_noncol_train_data_sorted_by_direction_noncol_test_data():
 
     sub_dir = 'train'
     dataset_filenames = {'train_dataset':['..' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime' +
-                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords',
+                                          os.sep + 'train' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon' +
-                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords',
+                                          os.sep + 'train' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon' +
-                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords',
+                                          os.sep + 'train' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2' +
-                                          os.sep + 'train' + os.sep + 'data-chunk-0.tfrecords'
+                                          os.sep + 'train' + os.sep + 'image-shuffled.hdf5'
                                           ],
 
                          'valid_dataset':
                              None,
 
                          'test_dataset': ['..' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime' + os.sep +
-                                          'test' + os.sep + 'data-chunk-0.tfrecords',
+                                          'test' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon' + os.sep +
-                                          'test' + os.sep + 'data-chunk-0.tfrecords',
+                                          'test' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon' +
-                                          os.sep + 'test' + os.sep + 'data-chunk-0.tfrecords',
+                                          os.sep + 'test' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2' +
-                                          os.sep + 'test' + os.sep + 'data-chunk-0.tfrecords'
+                                          os.sep + 'test' + os.sep + 'image-shuffled.hdf5'
                                           ]
                          }
 

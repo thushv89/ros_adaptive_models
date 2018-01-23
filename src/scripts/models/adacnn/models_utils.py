@@ -378,7 +378,7 @@ def precision_multiclass(pred,ohe_labels, use_argmin, max_thresh, min_thresh):
         logger.debug('')
         return precision_array
 
-    else:
+    else: # For collision data
 
         label_indices = np.argmin(ohe_labels, axis=1).flatten()
         # list with each item being an array corresponding to a single direction
