@@ -2,7 +2,7 @@ import tensorflow as tf
 import h5py
 import numpy as np
 import config
-
+import sys
 
 class DataGenerator(object):
 

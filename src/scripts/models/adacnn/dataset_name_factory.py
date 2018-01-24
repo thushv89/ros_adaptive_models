@@ -110,7 +110,7 @@ def new_get_noncol_train_data_col_noncol_test_data():
 def new_get_noncol_train_data_sorted_by_direction_noncol_test_data():
 
     sub_dir = 'train'
-    dataset_filenames = {'train_dataset':['..' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime' +
+    dataset_filenames = {'train_dataset':['..' + os.sep + '..' + os.sep + 'wombot-sit-front-evening' +
                                           os.sep + 'train' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon' +
                                           os.sep + 'train' + os.sep + 'image-shuffled.hdf5',
@@ -123,7 +123,7 @@ def new_get_noncol_train_data_sorted_by_direction_noncol_test_data():
                          'valid_dataset':
                              None,
 
-                         'test_dataset': ['..' + os.sep + '..' + os.sep + 'wombot-sit-front-jan-19-daytime' + os.sep +
+                         'test_dataset': ['..' + os.sep + '..' + os.sep + 'wombot-sit-front-evening' + os.sep +
                                           'test' + os.sep + 'image-shuffled.hdf5',
                                           '..' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon' + os.sep +
                                           'test' + os.sep + 'image-shuffled.hdf5',
@@ -134,9 +134,9 @@ def new_get_noncol_train_data_sorted_by_direction_noncol_test_data():
                                           ]
                          }
 
-    dataset_sizes = {'train_dataset': [315*3, 418*3, 490*3, 522*3],
+    dataset_sizes = {'train_dataset': [7500, 5400, 5300, 5500],
                      'valid_dataset': None,
-                     'test_dataset': [54*3, 67*3, 66*3, 89*3]}
+                     'test_dataset': [222, 276, 186, 306]}
 
 
 
