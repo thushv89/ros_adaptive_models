@@ -16,6 +16,7 @@ FEAT_IMG_ID = 'id'
 USE_GRAYSCALE = False
 TF_INPUT_SIZE = [96,128,3]
 
+
 if not USE_GRAYSCALE:
     TF_RESIZE_TO = [56, 128, 3]
 else:

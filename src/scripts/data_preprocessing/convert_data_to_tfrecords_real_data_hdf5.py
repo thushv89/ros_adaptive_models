@@ -12,7 +12,7 @@ import h5py
 ======================== convert_data_to_tfrecords ===============================
 This script will take the data in a given folder (.png images, log file) and create tf records
 '''
-RESIZE_W, RESIZE_H = 128,96
+RESIZE_W, RESIZE_H = 160,96
 
 def _int64_feature(value):
   return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -144,7 +144,7 @@ def get_image_indices_with_uniform_distribution(direction_to_img_id_dict):
     return all_img_indices
 
 
-def save_training_data(data_folders_list, is_bump_list, test_ranges):
+def save_training_data(data_folders_list, is_bump_list, test_indices):
     # Used as Training Data
     # ==========================================
     '''is_bump_list = [False, False, False, False, False, False, False, False]
@@ -183,7 +183,7 @@ def save_training_data(data_folders_list, is_bump_list, test_ranges):
                 f = f.readlines()
                 for line in f:
                     txt_tokens = line.split(':')
-                    if int(txt_tokens[0]) not in list(range(*test_ranges[fold_i])):
+                    if int(txt_tokens[0]) not in test_indices[fold_i]:
                         angle_dict[int(txt_tokens[0])] = float(txt_tokens[1])
                         img_indices.append(int(txt_tokens[0]))
                         img_id_to_direction_dict[int(txt_tokens[0])] = int(txt_tokens[2])
@@ -208,10 +208,11 @@ def save_training_data(data_folders_list, is_bump_list, test_ranges):
         logger.info(data_folder)
         logger.info('=' * 80)
 
-        equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
+        #equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
+
         # file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
         file_size_stat = dump_to_tfrecord_in_chunks(data_folder, train_save_dir, img_id_to_direction_dict,
-                                                    equal_img_indices, image_fname_prefix,
+                                                    img_indices, image_fname_prefix,
                                                     3, max_instances_per_file=None, augment_data=True, shuffle=True,
                                                     save_images_for_testing=True)
 
@@ -222,7 +223,7 @@ def save_training_data(data_folders_list, is_bump_list, test_ranges):
 
 
 
-def save_testing_data(data_folders_list, is_bump_list, test_ranges):
+def save_testing_data(data_folders_list, is_bump_list, test_indices):
     # Used as Testing Data
     # =================================================
 
@@ -271,7 +272,7 @@ def save_testing_data(data_folders_list, is_bump_list, test_ranges):
                 f = f.readlines()
                 for line in f:
                     txt_tokens = line.split(':')
-                    if int(txt_tokens[0]) in list(range(*test_range[fold_i])):
+                    if int(txt_tokens[0]) in test_indices:
 
                         angle_dict[int(txt_tokens[0])] = float(txt_tokens[1])
                         img_indices.append(int(txt_tokens[0]))
@@ -337,7 +338,13 @@ if __name__ == '__main__':
         '.' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2'
     ]
 
-    test_range = [(1538,1988),(527,977),(472,922),(452,902)]
+
+    test_indices = [
+        list(range(1538,1838)),
+        list(range(527,827)),
+        list(range(606,656))+ list(range(1055,1115)) + list(range(1823,1903)) + list(range(2126,2186)),
+        list(range(1007,1097)) + list(range(1252,1292)) + list(range(1465,1565)) + list(range(1688,1708))
+    ]
 
     #is_bump_list = [False, False, False]
 
@@ -349,7 +356,7 @@ if __name__ == '__main__':
 
     #test_range = [(527,977),(472,922),(452,902)]
 
-    save_training_data(data_folders_list, is_bump_list, test_range)
+    save_training_data(data_folders_list, is_bump_list, test_indices)
     save_testing_data(data_folders_list, is_bump_list, test_range)
 
     #save_training_data()
