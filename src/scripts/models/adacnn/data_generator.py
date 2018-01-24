@@ -6,7 +6,7 @@ import config
 
 class DataGenerator(object):
 
-    def __init__(self, _batch_size, _n_labels, _data_sizes, _input_size, _session, _dataset_fnames, _input_size_resized):
+    def __init__(self, _batch_size, _n_labels, _data_sizes, _input_size, _session, _dataset_fnames, _input_size_resized, _is_testing_data):
 
         self.batch_size = _batch_size
         self.n_labels = _n_labels
@@ -20,6 +20,7 @@ class DataGenerator(object):
         self.session = _session
 
         self.dataset_idx = [0 for _ in range(len(_dataset_fnames))]
+        self.is_testing_data = _is_testing_data
 
         self.img_ids, self.images, self.labels = [],[],[]
 
@@ -33,22 +34,23 @@ class DataGenerator(object):
     def tf_augment_data_with(self):
 
         tf_image_batch = self.tf_image_ph
-
-        tf_image_batch = tf.random_crop(tf_image_batch,[self.batch_size] + self.input_size_after_resize,seed=13423905832)
-
-        tf_image_batch = tf.map_fn(lambda img: tf.image.random_flip_left_right(img), tf_image_batch)
-
-        tf_image_batch = tf.image.random_brightness(tf_image_batch,0.5)
-        tf_image_batch = tf.image.random_contrast(tf_image_batch,0.5,1.5)
-
         label_batch = tf.one_hot(self.tf_label_ph, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
+
+        if not self.is_testing_data:
+            tf_image_batch = tf.map_fn(lambda img: tf.random_crop(
+                img, self.input_size_after_resize, seed=tf.set_random_seed(2334543)
+            ), tf_image_batch)
+
+            #Adjust contrast/brightness randomly
+            tf_image_batch = tf.image.random_brightness(tf_image_batch, 0.2)
+            tf_image_batch = tf.image.random_contrast(tf_image_batch, 0.5, 1.2)
+            #tf_image_batch = tf.random_crop(tf_image_batch,[self.batch_size] + self.input_size_after_resize,seed=13423905832)
+        else:
+            tf_image_batch = tf.map_fn(lambda img: tf.image.crop_to_bounding_box(img, 16, 0, 64, 128), tf_image_batch)
+            tf_image_batch = tf.image.adjust_contrast(tf_image_batch, 0.25)
 
         # standardize image
         tf_image_batch = tf.map_fn(lambda img: tf.image.per_image_standardization(img), tf_image_batch)
-
-        flip_rand = tf.random_uniform(shape=[1], minval=0, maxval=1.0, seed=154324654)
-        image_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(tf_image_batch, axis=[2]), lambda: tf_image_batch)
-        label_batch = tf.cond(flip_rand[0] > 0.5, lambda: tf.reverse(label_batch, axis=[1]), lambda: label_batch)
 
         return self.tf_img_id_ph, tf_image_batch, label_batch
 

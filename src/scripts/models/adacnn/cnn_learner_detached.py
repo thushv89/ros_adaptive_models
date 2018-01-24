@@ -36,7 +36,7 @@ sess = None
 
 activation = None
 
-max_thresh = 0.34
+max_thresh = 0.35
 min_thresh = 0.1
 
 kernel_size_dict = None
@@ -138,7 +138,7 @@ def calculate_loss(tf_logits,tf_labels):
     label_mask = tf_labels + (tf.cast(tf.equal(tf_labels, 0.0), dtype=tf.float32) * rand_mask)
     #label_mask = tf.clip_by_value(label_mask,0.0,1,0)
 
-    loss = tf.reduce_mean(tf.reduce_sum(((tf.nn.softmax(tf_logits) - tf_labels) ** 2)*label_mask, axis=[1]), axis=[0])
+    loss = tf.reduce_mean(tf.reduce_sum((tf.nn.softmax(tf_logits) * label_mask - tf_labels) ** 2, axis=[1]), axis=[0])
 
     for op in scope_list:
         if 'conv' in op:
@@ -509,12 +509,12 @@ if __name__ == '__main__':
 
         train_data_gen = data_generator.DataGenerator(
             config.BATCH_SIZE, config.TF_NUM_CLASSES, dataset_sizes['train_dataset'],
-            config.TF_INPUT_SIZE, sess, dataset_filenames['train_dataset'], config.TF_INPUT_AFTER_RESIZE
+            config.TF_INPUT_SIZE, sess, dataset_filenames['train_dataset'], config.TF_INPUT_AFTER_RESIZE,False
         )
 
         test_data_gen = data_generator.DataGenerator(
             config.BATCH_SIZE, config.TF_NUM_CLASSES, dataset_sizes['test_dataset'],
-            config.TF_INPUT_SIZE, sess, dataset_filenames['test_dataset'], config.TF_INPUT_AFTER_RESIZE
+            config.TF_INPUT_SIZE, sess, dataset_filenames['test_dataset'], config.TF_INPUT_AFTER_RESIZE, True
         )
 
         tf_train_img_ids, tf_train_images, tf_train_labels = train_data_gen.tf_augment_data_with()
@@ -524,74 +524,75 @@ if __name__ == '__main__':
 
         tf.global_variables_initializer().run(session=sess)
 
-        for train_env_idx in range(4):
+        for main_ep in range(10):
+            for train_env_idx in range(4):
 
-            logger.info('Training with data of environment %d',train_env_idx)
+                logger.info('Training with data of environment %d',train_env_idx)
 
-            for epoch in range(150):
+                for epoch in range(150):
 
-                # ========================================================================
-                # Train on Training Dataset
-                train_results = train_with_one_environment_data(train_env_idx,train_data_gen,dataset_sizes, sess)
-                logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,train_results['loss']))
-                # =========================================================================
+                    # ========================================================================
+                    # Train on Training Dataset
+                    train_results = train_with_one_environment_data(train_env_idx,train_data_gen,dataset_sizes, sess)
+                    logger.info('\tAverage Loss for Epoch %d: %.5f' %(epoch,train_results['loss']))
+                    # =========================================================================
 
-                # =========================================================================
-                # Prediction for Training data
-                train_prediction_results = train_prediction_results = train_predictions_with_one_environment_data(
-                    train_env_idx,train_data_gen,dataset_sizes, sess
-                )
+                    # =========================================================================
+                    # Prediction for Training data
+                    train_prediction_results = train_prediction_results = train_predictions_with_one_environment_data(
+                        train_env_idx,train_data_gen,dataset_sizes, sess
+                    )
 
-                logger.info('\t\t Training accuracy: %.3f (Hard) %.3f (Soft)'\
-                            %(train_prediction_results['accuracy'], train_prediction_results['soft_accuracy'])
+                    logger.info('\t\t Training accuracy: %.3f (Hard) %.3f (Soft)'\
+                                %(train_prediction_results['accuracy'], train_prediction_results['soft_accuracy'])
+                                )
+                    # ============================================================================
+
+                    # Test Phase
+                    if (epoch+1)%10==0:
+                        logger.info('\tTesting phase (Epoch %d)',epoch+1)
+                        for test_env_idx in range(4):
+                            logger.info('\t\tTesting environment (%d)',test_env_idx)
+
+                            test_prediction_results = test_predictions_with_one_environment_data(
+                                test_env_idx, test_data_gen, sess
                             )
-                # ============================================================================
 
-                # Test Phase
-                if (epoch+1)%10==0:
-                    logger.info('\tTesting phase (Epoch %d)',epoch+1)
-                    for test_env_idx in range(4):
-                        logger.info('\t\tTesting environment (%d)',test_env_idx)
+                            precision_string = ''.join(['%.3f,' % test_prediction_results['precision'][pi] for pi in range(3)])
+                            recall_string = ''.join(['%.3f,' % test_prediction_results['recall'][ri] for ri in range(3)])
 
-                        test_prediction_results = test_predictions_with_one_environment_data(
-                            test_env_idx, test_data_gen, sess
-                        )
+                            predictionlogger.info('\n')
+                            print('\t\t\tAverage test accuracy: %.5f '%test_prediction_results['accuracy'])
+                            print('\t\t\tAverage test accuracy(soft): %.5f'%test_prediction_results['soft_accuracy'])
+                            print('\t\t\tAverage test precision: %s', test_prediction_results['precision'])
+                            print('\t\t\tAverage test recall: %s', test_prediction_results['recall'])
 
-                        precision_string = ''.join(['%.3f,' % test_prediction_results['precision'][pi] for pi in range(3)])
-                        recall_string = ''.join(['%.3f,' % test_prediction_results['recall'][ri] for ri in range(3)])
+                            # saving figures
 
-                        predictionlogger.info('\n')
-                        print('\t\t\tAverage test accuracy: %.5f '%test_prediction_results['accuracy'])
-                        print('\t\t\tAverage test accuracy(soft): %.5f'%test_prediction_results['soft_accuracy'])
-                        print('\t\t\tAverage test precision: %s', test_prediction_results['precision'])
-                        print('\t\t\tAverage test recall: %s', test_prediction_results['recall'])
-    
-                        # saving figures
+                            # ==============================================================
+                            # create a dictionary img_id => image
+                            # This part of code is used to generate images for correctly classified images
 
-                        # ==============================================================
-                        # create a dictionary img_id => image
-                        # This part of code is used to generate images for correctly classified images
+                            '''image_list = np.split(all_images,all_images.shape[0])
+                            id_list = all_img_ids.tolist()
+                            dict_id_image = dict(zip(id_list,image_list))
+            
+                            correct_hard_ids_sorted = {}
+                            predicted_hard_ids_sorted = {}
+                            for di,direct in enumerate(['left','straight','right']):
+                                correct_hard_ids_sorted[direct] = models_utils.get_id_vector_for_correctly_predicted_samples(
+                                    all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
+                                predicted_hard_ids_sorted[direct] = models_utils.get_id_vector_for_predicted_samples(
+                                    all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
+                            logger.info('correct hard img ids for: %s',correct_hard_ids_sorted)
+                            visualizer.save_fig_with_predictions_for_direction(correct_hard_ids_sorted, dict_id_image,
+                                                                               IMG_DIR + os.sep + 'correct_predicted_results_hard_%d.png'%(epoch))
+                            visualizer.save_fig_with_predictions_for_direction(predicted_hard_ids_sorted, dict_id_image,
+                                                                               IMG_DIR + os.sep + 'predicted_results_hard_%d.png' % (
+                                                                               epoch))'''
+                            # ============================================================================
 
-                        '''image_list = np.split(all_images,all_images.shape[0])
-                        id_list = all_img_ids.tolist()
-                        dict_id_image = dict(zip(id_list,image_list))
-        
-                        correct_hard_ids_sorted = {}
-                        predicted_hard_ids_sorted = {}
-                        for di,direct in enumerate(['left','straight','right']):
-                            correct_hard_ids_sorted[direct] = models_utils.get_id_vector_for_correctly_predicted_samples(
-                                all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
-                            predicted_hard_ids_sorted[direct] = models_utils.get_id_vector_for_predicted_samples(
-                                all_img_ids, all_predictions, all_labels, di, enable_soft_accuracy=False, use_argmin=False)
-                        logger.info('correct hard img ids for: %s',correct_hard_ids_sorted)
-                        visualizer.save_fig_with_predictions_for_direction(correct_hard_ids_sorted, dict_id_image,
-                                                                           IMG_DIR + os.sep + 'correct_predicted_results_hard_%d.png'%(epoch))
-                        visualizer.save_fig_with_predictions_for_direction(predicted_hard_ids_sorted, dict_id_image,
-                                                                           IMG_DIR + os.sep + 'predicted_results_hard_%d.png' % (
-                                                                           epoch))'''
-                        # ============================================================================
-
-                        accuracy_logger.info('%d,%d,%d,%.3f,%.3f,%.3f,%s,%s',
-                                             train_env_idx,epoch,test_env_idx,test_prediction_results['accuracy'],
-                                             test_prediction_results['soft_accuracy'], train_results['loss'], precision_string, recall_string)
+                            accuracy_logger.info('%d,%d,%d,%.3f,%.3f,%.3f,%s,%s',
+                                                 train_env_idx,epoch,test_env_idx,test_prediction_results['accuracy'],
+                                                 test_prediction_results['soft_accuracy'], train_results['loss'], precision_string, recall_string)
 

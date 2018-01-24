@@ -24,7 +24,7 @@ def optimize_model_detached(loss, global_step):
     '''
 
     learning_rate = tf.maximum(
-        tf.train.exponential_decay(0.001, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
+        tf.train.exponential_decay(config.START_LR, global_step, decay_steps=1, decay_rate=0.9, staircase=True,
                                    name='learning_rate_decay'), 1e-4)
 
     optimizer = tf.train.RMSPropOptimizer(learning_rate=config.START_LR)
@@ -50,7 +50,7 @@ def optimize_model_naive(loss, global_step, collision):
         tf.train.exponential_decay(0.0005, global_step, decay_steps=1, decay_rate=0.5, staircase=True,
                                    name='learning_rate_decay'), 1e-6)
 
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate)
     for si, scope in enumerate(config.TF_ANG_SCOPES):
         if 'pool' in scope:
             continue
