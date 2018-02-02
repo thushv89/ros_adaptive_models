@@ -8,8 +8,8 @@ import os
 
 def test_if_images_after_preprocessing_are_fine():
     graph = tf.Graph()
-    config p = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
-    sess = tf.InteractiveSession(graph=graph, config=configp)
+    config  = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
+    sess = tf.InteractiveSession(graph=graph, config=config)
 
     dataset_filenames, dataset_sizes = dataset_name_factory.new_get_noncol_train_data_sorted_by_direction_noncol_test_data()
 

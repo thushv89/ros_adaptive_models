@@ -46,6 +46,8 @@ scope_list = None
 conv_dropout_placeholder_dict = {}
 
 all_directions = ['left', 'straight', 'right']
+num_env = 3
+
 
 def define_conv_dropout_placeholder():
     global scope_list, conv_dropout_placeholder_dict
@@ -524,8 +526,8 @@ if __name__ == '__main__':
 
         tf.global_variables_initializer().run(session=sess)
 
-        for main_ep in range(10):
-            for train_env_idx in range(4):
+        for main_ep in range(2):
+            for train_env_idx in range(num_env):
 
                 logger.info('Training with data of environment %d',train_env_idx)
 
@@ -551,7 +553,7 @@ if __name__ == '__main__':
                     # Test Phase
                     if (epoch+1)%10==0:
                         logger.info('\tTesting phase (Epoch %d)',epoch+1)
-                        for test_env_idx in range(4):
+                        for test_env_idx in range(num_env):
                             logger.info('\t\tTesting environment (%d)',test_env_idx)
 
                             test_prediction_results = test_predictions_with_one_environment_data(

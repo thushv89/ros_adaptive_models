@@ -17,7 +17,7 @@ TF_DROPOUT_STR = 'dropout'
 # INPUT SIZE (ORIGINAL) (128,96)
 # NEW INPUT SIZE  (RESIZED) (96,56)
 
-TF_INPUT_SIZE = [96,128,3] # Original
+TF_INPUT_SIZE = [96,160,3] # Original
 TF_INPUT_AFTER_RESIZE = [64,128,3]
 
 TF_NONCOL_STR = 'non-collision'
@@ -116,7 +116,7 @@ def setup_best_user_dependent_hyperparameters():
     L2_BETA = 0.0001
     IN_DROPOUT = 0.0
     LAYER_DROPOUT = 0.5
-    START_LR = 0.0001
+    START_LR = 0.00005
     FC1_WEIGHTS_DETACHED = 100
 
     TF_ANG_SCOPES = ['conv1', 'conv2', 'conv3', 'conv4', 'fc1', 'out']

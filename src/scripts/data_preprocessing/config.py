@@ -22,8 +22,6 @@ if not USE_GRAYSCALE:
 else:
     TF_RESIZE_TO = [56, 128, 1]
 
-TF_WEIGHTS_STR = 'weights'
-TF_BIAS_STR = 'bias'
-TF_MOMENTUM_STR = 'Momentum'
+
 TF_NUM_CLASSES = 3
 

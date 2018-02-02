@@ -12,23 +12,14 @@ import h5py
 ======================== convert_data_to_tfrecords ===============================
 This script will take the data in a given folder (.png images, log file) and create tf records
 '''
-RESIZE_W, RESIZE_H = 160,96
-
-def _int64_feature(value):
-  return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
-
-
-def _float_feature(value):
-  return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
-
-
-def _bytes_feature(value):
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+RESIZE_W = 160
+RESIZE_H = 96
 
 
 def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
                                image_ids,image_fname_prefix, n_direction, max_instances_per_file=None,
                                shuffle=False, augment_data=False, save_images_for_testing=False):
+    global RESIZE_W, RESIZE_H
     '''
     Converts a dataset to tfrecords. Write several tfrecords by breaking the dataset into number of chunks
     :param data_folder:
@@ -46,7 +37,6 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
 
     chunk_index = 0
 
-    print(image_ids)
     file_size_stat_dict = {}
     if save_images_for_testing:
         for di in range(n_direction):
@@ -71,8 +61,12 @@ def dump_to_tfrecord_in_chunks(data_folder, save_dir, drive_direct_dict,
 
     for img_id in image_ids:
         im = Image.open(data_folder+os.sep+ image_fname_prefix + '_%d.png'%img_id)
-        im.thumbnail((RESIZE_W, RESIZE_H), Image.ANTIALIAS)
         im_mat = np.array(im, dtype=np.float32)
+        #print(im_mat.shape)
+        im.thumbnail((160, 120), Image.ANTIALIAS)
+        im = im.crop((0,12,160,108))
+        im_mat = np.array(im, dtype=np.float32)
+        #print(im_mat.shape)
         drive_direction = drive_direct_dict[img_id]
 
         if img_id_arr is None or images_arr is None or labels_arr is None:
@@ -304,9 +298,9 @@ def save_testing_data(data_folders_list, is_bump_list, test_indices):
         print('Direction to IMG_ID')
         print([len(direction_to_img_id_dict[k]) for k in direction_to_img_id_dict.keys()])
 
-        equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
+        #equal_img_indices = get_image_indices_with_uniform_distribution(direction_to_img_id_dict)
         #file_size_stat = dump_to_tfrecord_suffled(data_folder, equal_save_dir, img_id_to_direction_dict,equal_img_indices,image_fname_prefix)
-        file_size_stat = dump_to_tfrecord_in_chunks(data_folder,equal_save_dir,img_id_to_direction_dict,equal_img_indices,image_fname_prefix,
+        file_size_stat = dump_to_tfrecord_in_chunks(data_folder,equal_save_dir,img_id_to_direction_dict,img_indices,image_fname_prefix,
                                                     3, max_instances_per_file=None,augment_data=True,shuffle=True,save_images_for_testing=True)
 
         with open(equal_save_dir+os.sep+'dataset_sizes.txt','w') as f:
@@ -330,11 +324,11 @@ if __name__ == '__main__':
     logger.addHandler(console)
     logger.addHandler(fileHandler)
 
-    is_bump_list = [False, False, False, False]
+    is_bump_list = [False, False, False]
 
     data_folders_list = [
         '.' + os.sep + '..' + os.sep + 'wombot-sit-front-evening',
-        '.' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon',
+        #'.' + os.sep + '..' + os.sep + 'wombot-level1-courtyad-afternoon',
         '.' + os.sep + '..' + os.sep + 'wombot-lab-level5-afternoon',
         '.' + os.sep + '..' + os.sep + 'wombot-acfr-front-afternoon-2'
     ]
@@ -342,7 +336,7 @@ if __name__ == '__main__':
 
     test_indices = [
         list(range(1112,1162))+ list(range(1632,1732))+ list(range(3283,3383)),
-        list(range(527,827)),
+        #list(range(527,827)),
         list(range(606,656))+ list(range(1055,1115)) + list(range(1823,1903)) + list(range(2126,2186)),
         list(range(1007,1097)) + list(range(1252,1292)) + list(range(1465,1565)) + list(range(1688,1708))
     ]
@@ -357,7 +351,7 @@ if __name__ == '__main__':
 
     #test_range = [(527,977),(472,922),(452,902)]
 
-    #save_training_data(data_folders_list, is_bump_list, test_indices)
+    save_training_data(data_folders_list, is_bump_list, test_indices)
     save_testing_data(data_folders_list, is_bump_list, test_indices)
 
     #save_training_data()

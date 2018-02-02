@@ -46,7 +46,7 @@ class DataGenerator(object):
             tf_image_batch = tf.image.random_contrast(tf_image_batch, 0.5, 1.2)
             #tf_image_batch = tf.random_crop(tf_image_batch,[self.batch_size] + self.input_size_after_resize,seed=13423905832)
         else:
-            tf_image_batch = tf.map_fn(lambda img: tf.image.crop_to_bounding_box(img, 16, 0, 64, 128), tf_image_batch)
+            tf_image_batch = tf.map_fn(lambda img: tf.image.crop_to_bounding_box(img, 16, 16, 64, 128), tf_image_batch)
             tf_image_batch = tf.image.adjust_contrast(tf_image_batch, 0.25)
 
         # standardize image

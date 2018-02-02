@@ -1,5 +1,5 @@
 import tensorflow as tf
-import constants
+import ada_cnn_constants as constants
 import numpy as np
 import logging
 import sys
@@ -15,16 +15,16 @@ research_parameters = None
 TF_FC_WEIGHT_IN_STR = constants.TF_FC_WEIGHT_IN_STR
 TF_FC_WEIGHT_OUT_STR = constants.TF_FC_WEIGHT_OUT_STR
 TF_CONV_WEIGHT_SHAPE_STR = constants.TF_CONV_WEIGHT_SHAPE_STR
-final_2d_width = None
+final_2d_width, final_2d_height = None, None
 cnn_hyperparameters, cnn_ops = None, None
 logger = None
 
-def set_from_main(research_params,final_2d_w,ops,hyps, logging_level, logging_format):
-    global research_parameters,final_2d_width, logger
+def set_from_main(research_params, final_2d_h, final_2d_w,ops,hyps, logging_level, logging_format):
+    global research_parameters,final_2d_width, final_2d_height, logger
     global cnn_hyperparameters, cnn_ops
     research_parameters = research_params
     final_2d_width = final_2d_w
-
+    final_2d_height = final_2d_h
     cnn_hyperparameters = hyps
     cnn_ops = ops
 
@@ -40,14 +40,11 @@ def add_with_action(
         op, tf_action_info, tf_weights_this, tf_bias_this,
         tf_weights_next, tf_wvelocity_this,
         tf_bvelocity_this, tf_wvelocity_next, tf_replicative_factor_vec,
-        tf_act_this, tf_age_weights_this, tf_age_bias_this, tf_age_weights_next
+        tf_act_this
 ):
     global cnn_hyperparameters, cnn_ops
     global logger
 
-    age_epsilon = 0.01
-    min_age = 0.5
-    max_age = 2.0
     first_fc = 'fulcon_out' if 'fulcon_0' not in cnn_ops else 'fulcon_0'
     update_ops = []
 
@@ -74,21 +71,12 @@ def add_with_action(
             b_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
             pool_b_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-        # variables containing age of each parameter
-        with tf.variable_scope('age', reuse=True):
-            age_w, age_b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
 
         # calculating new weights
         tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec, [1, 1, 1, -1])
         tf_new_weights = tf.div(tf.concat(axis=3, values=[w, tf_weights_this]),tf_reshaped_replicative_factor_vec)
         tf_new_biases = tf.div(tf.concat(axis=0, values=[b, tf_bias_this]),tf_replicative_factor_vec)
         tf_new_act = tf.concat(axis=0, values=[act,tf_act_this])
-
-        tf_new_age_w = tf.concat(axis=3, values=[age_w+age_epsilon, tf_age_weights_this])
-        tf_new_age_w = tf.clip_by_value(tf_new_age_w, min_age, max_age)
-
-        tf_new_age_b = tf.concat(axis=0, values=[age_b+age_epsilon, tf_age_bias_this])
-        tf_new_age_b = tf.clip_by_value(tf_new_age_b, min_age, max_age)
 
         if research_parameters['optimizer'] == 'Momentum':
             new_weight_vel = tf.concat(axis=3, values=[w_vel, tf_wvelocity_this])
@@ -104,8 +92,6 @@ def add_with_action(
         update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
         update_ops.append(tf.assign(b, tf_new_biases, validate_shape=False))
         update_ops.append(tf.assign(act, tf_new_act, validate_shape=False))
-        update_ops.append(tf.assign(age_w, tf_new_age_w, validate_shape=False))
-        update_ops.append(tf.assign(age_b, tf_new_age_b, validate_shape=False))
 
     # ================ Changes to next_op ===============
     # Very last convolutional layer
@@ -115,37 +101,34 @@ def add_with_action(
         # change FC layer
         # the reshaping is required because our placeholder for weights_next is Rank 4
         with tf.variable_scope(first_fc,reuse=True) as scope:
-            w = tf.get_variable(TF_WEIGHTS)
-            with tf.variable_scope(TF_WEIGHTS, reuse=True):
-                w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
-                pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
+            for di in ['left','straight','right']:
+                with tf.variable_scope(di,reuse=True):
 
-            tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec, [-1,1])
-            tf_reshaped_replicative_factor_vec = tf.tile(tf_reshaped_replicative_factor_vec,[1,final_2d_width*final_2d_width])
-            tf_reshaped_replicative_factor_vec = tf.reshape(tf_reshaped_replicative_factor_vec,[-1])
-            tf_reshaped_replicative_factor_vec = tf.reshape(tf_reshaped_replicative_factor_vec,[-1,1])
+                    w = tf.get_variable(TF_WEIGHTS)
+                    with tf.variable_scope(TF_WEIGHTS, reuse=True):
+                        w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
+                        pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-            # variables containing age of each parameter
-            with tf.variable_scope('age', reuse=True):
-                age_w = tf.get_variable(TF_WEIGHTS)
+                    tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec, [-1,1])
+                    tf_reshaped_replicative_factor_vec = tf.tile(tf_reshaped_replicative_factor_vec,[1,final_2d_height*final_2d_width])
+                    tf_reshaped_replicative_factor_vec = tf.reshape(tf_reshaped_replicative_factor_vec,[-1])
+                    tf_reshaped_replicative_factor_vec = tf.reshape(tf_reshaped_replicative_factor_vec,[-1,1])
 
-            tf_weights_next = tf.squeeze(tf_weights_next)
-            tf_age_weights_next = tf.squeeze(tf_age_weights_next)
+                    # variables containing age of each parameter
+                    tf_weights_next = tf.squeeze(tf_weights_next)
 
-            tf_new_weights = tf.div(tf.concat(axis=0, values=[w, tf_weights_next]),tf_reshaped_replicative_factor_vec)
-            tf_new_age_weights = tf.concat(axis=0, values=[age_w+age_epsilon, tf_age_weights_next])
-            tf_new_age_weights = tf.clip_by_value(tf_new_age_weights, min_age, max_age)
+                    tf_new_weights = tf.div(tf.concat(axis=0, values=[w, tf_weights_next]),tf_reshaped_replicative_factor_vec)
 
-            # updating velocity vectors
-            if research_parameters['optimizer'] == 'Momentum':
-                tf_wvelocity_next = tf.squeeze(tf_wvelocity_next)
-                new_weight_vel = tf.concat(axis=0, values=[w_vel, tf_wvelocity_next])
-                new_pool_w_vel = tf.concat(axis=0, values=[pool_w_vel, tf_wvelocity_next])
-                update_ops.append(tf.assign(w_vel, new_weight_vel, validate_shape=False))
-                update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
+                    # updating velocity vectors
+                    if research_parameters['optimizer'] == 'Momentum':
+                        tf_wvelocity_next = tf.squeeze(tf_wvelocity_next)
+                        new_weight_vel = tf.concat(axis=0, values=[w_vel, tf_wvelocity_next])
+                        new_pool_w_vel = tf.concat(axis=0, values=[pool_w_vel, tf_wvelocity_next])
+                        update_ops.append(tf.assign(w_vel, new_weight_vel, validate_shape=False))
+                        update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
 
-            update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-            update_ops.append(tf.assign(age_w, tf_new_age_weights, validate_shape=False))
+                    update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
+
 
     else:
 
@@ -161,13 +144,9 @@ def add_with_action(
                 pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
             # variables containing age of each parameter
-            with tf.variable_scope('age', reuse=True):
-                age_w = tf.get_variable(TF_WEIGHTS)
 
             tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec, [1, 1, -1, 1])
             tf_new_weights = tf.div(tf.concat(axis=2, values=[w, tf_weights_next]),tf_reshaped_replicative_factor_vec)
-            tf_new_age_weights = tf.concat(axis=2, values=[age_w+age_epsilon, tf_age_weights_next])
-            tf_new_age_weights = tf.clip_by_value(tf_new_age_weights, min_age, max_age)
 
             if research_parameters['optimizer'] == 'Momentum':
                 new_weight_vel = tf.concat(axis=2, values=[w_vel, tf_wvelocity_next])
@@ -176,7 +155,7 @@ def add_with_action(
                 update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
 
             update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-            update_ops.append(tf.assign(age_w, tf_new_age_weights, validate_shape=False))
+
 
     return update_ops
 
@@ -185,17 +164,14 @@ def add_to_fulcon_with_action(
         op, tf_action_info, tf_fulcon_weights_this, tf_fulcon_bias_this,
         tf_fulcon_weights_next, tf_fulcon_wvelocity_this,
         tf_fulcon_bvelocity_this, tf_fulcon_wvelocity_next, tf_replicative_factor_vec,
-        tf_act_this, tf_age_fulcon_weights_this, tf_age_fulcon_bias_this,
-        tf_age_fulcon_weights_next
+        tf_act_this
 ):
     global cnn_hyperparameters, cnn_ops
     global logger
 
     first_fc = 'fulcon_out' if 'fulcon_0' not in cnn_ops else 'fulcon_0'
     update_ops = []
-    age_epsilon = 0.01
-    min_age=0.5
-    max_age=2.0
+
     # find the id of the last conv operation of the net
     next_fulcon_id = None
     for tmp_op in reversed(cnn_ops):
@@ -221,9 +197,6 @@ def add_to_fulcon_with_action(
             b_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
             pool_b_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-        with tf.variable_scope('age', reuse=True):
-            age_w, age_b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
-
         # calculating new weights
         tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec, [1, -1])
         tf_new_weights = tf.div(
@@ -232,12 +205,6 @@ def add_to_fulcon_with_action(
 
         tf_new_biases = tf.div(tf.concat(axis=0, values=[b, tf_fulcon_bias_this]),tf_replicative_factor_vec)
         tf_new_act = tf.concat(axis=0, values=[act,tf_act_this])
-
-        tf_age_new_weights = tf.concat(axis=1, values=[age_w+age_epsilon, tf.squeeze(tf_age_fulcon_weights_this)])
-        tf_age_new_weights = tf.clip_by_value(tf_age_new_weights, min_age, max_age)
-
-        tf_age_new_biases = tf.concat(axis=0, values=[b+age_epsilon, tf_age_fulcon_bias_this])
-        tf_age_new_biases = tf.clip_by_value(tf_age_new_biases, min_age, max_age)
 
         if research_parameters['optimizer'] == 'Momentum':
 
@@ -254,8 +221,6 @@ def add_to_fulcon_with_action(
         update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
         update_ops.append(tf.assign(b, tf_new_biases, validate_shape=False))
         update_ops.append(tf.assign(act, tf_new_act, validate_shape=False))
-        update_ops.append(tf.assign(age_w, tf_age_new_weights, validate_shape=False))
-        update_ops.append(tf.assign(age_b, tf_age_new_biases, validate_shape=False))
 
     # ================ Changes to next_op ===============
     # change FC layer
@@ -266,15 +231,9 @@ def add_to_fulcon_with_action(
             w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
             pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-        with tf.variable_scope('age', reuse=True):
-            age_w = tf.get_variable(TF_WEIGHTS)
-
         tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec,[-1,1])
         tf_weights_next = tf.squeeze(tf_fulcon_weights_next)
         tf_new_weights = tf.div(tf.concat(axis=0, values=[w, tf_weights_next]),tf_reshaped_replicative_factor_vec)
-
-        tf_age_new_weights = tf.concat(axis=0, values=[age_w + age_epsilon, tf.squeeze(tf_age_fulcon_weights_next)])
-        tf_age_new_weights = tf.clip_by_value(tf_age_new_weights, min_age, max_age)
 
         # updating velocity vectors
         tf_wvelocity_next = tf.squeeze(tf_fulcon_wvelocity_next)
@@ -284,7 +243,7 @@ def add_to_fulcon_with_action(
         update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
 
         update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-        update_ops.append(tf.assign(age_w, tf_age_new_weights,validate_shape=False))
+
     return update_ops
 
 
@@ -293,9 +252,7 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
     global cnn_hyperparameters, cnn_ops
     global logger
 
-    age_epsilon = 0.02
-    min_age = 0.5
-    max_age = 2.0
+
     first_fc = 'fulcon_out' if 'fulcon_0' not in cnn_ops else 'fulcon_0'
     update_ops = []
 
@@ -333,33 +290,19 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
             b_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
             pool_b_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-        with tf.variable_scope('age', reuse=True):
-            age_w, age_b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
-
         tf_new_weights = tf.transpose(w, [3, 0, 1, 2])
         tf_new_weights = tf.gather_nd(tf_new_weights, tf_indices_to_keep)
         tf_new_weights = tf.transpose(tf_new_weights, [1, 2, 3, 0], name='new_weights')
 
-        tf_age_new_weights = tf.transpose(age_w, [3,0,1,2])
-        tf_age_new_weights = tf.gather_nd(tf_age_new_weights, tf_indices_to_keep)
-        tf_age_new_weights = tf.transpose(tf_age_new_weights, [1,2,3,0],name='new_age_weights')
-
         # make sure that all the elements are >= 1
-        tf_age_new_weights = tf_age_new_weights - age_epsilon
-        tf_age_new_weights = tf.clip_by_value(tf_age_new_weights, min_age, max_age)
 
         update_ops.append(tf.assign(w, tf_new_weights*tf_weight_bump_factor, validate_shape=False))
-        update_ops.append(tf.assign(age_w, tf_age_new_weights, validate_shape=False))
+
 
         tf_new_biases = tf.reshape(tf.gather(b, tf_indices_to_keep),[-1])
-        tf_age_new_biases = tf.reshape(tf.gather(age_b, tf_indices_to_keep),[-1])
-
         # make sure that all the elements are >= 1
-        tf_age_new_biases = tf_age_new_biases - age_epsilon
-        tf_age_new_biases = tf.clip_by_value(tf_age_new_biases,min_age,max_age)
 
         update_ops.append(tf.assign(b, tf_new_biases*tf_weight_bump_factor, validate_shape=False))
-        update_ops.append(tf.assign(age_b, tf_age_new_biases, validate_shape=False))
 
         tf_new_acts = tf.reshape(tf.gather(act, tf_indices_to_keep),[-1])
         update_ops.append(tf.assign(act, tf_new_acts, validate_shape=False))
@@ -390,25 +333,18 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
                 w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
                 pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-            with tf.variable_scope('age', reuse=True):
-                age_w = tf.get_variable(TF_WEIGHTS)
-
             # Making fulcon indices from the last convolution filter indices to be removed
             # by having for each index i, (i*final_w*final_w)-> ((i+1)*final_w*final_w)
-            tf_offset = tf.cast(tf.reshape(tf.range(0, final_2d_width*final_2d_width),[1,-1]),dtype=tf.int64)
+            tf_offset = tf.cast(tf.reshape(tf.range(0, final_2d_height*final_2d_width),[1,-1]),dtype=tf.int64)
             tf_fulcon_indices_to_keep = tf.reshape(tf_indices_to_keep,[-1,1])
-            tf_fulcon_indices_to_keep = tf.tile(tf_fulcon_indices_to_keep,[1,final_2d_width*final_2d_width])
+            tf_fulcon_indices_to_keep = tf.tile(tf_fulcon_indices_to_keep,[1,final_2d_height*final_2d_width])
             tf_fulcon_indices_to_keep = tf_fulcon_indices_to_keep + tf_offset
             tf_fulcon_indices_to_keep = tf.reshape(tf_fulcon_indices_to_keep,[-1,1])
 
             tf_new_weights = tf.gather_nd(w, tf_fulcon_indices_to_keep)
 
-            tf_age_new_weights = tf.gather_nd(age_w, tf_fulcon_indices_to_keep)
-            tf_age_new_weights = tf_age_new_weights - age_epsilon
-            tf_age_new_weights = tf.clip_by_value(tf_age_new_weights,min_age,max_age)
-
             update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-            update_ops.append(tf.assign(age_w, tf_age_new_weights, validate_shape=False))
+
 
             if research_parameters['optimizer'] == 'Momentum':
 
@@ -430,22 +366,13 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
                 w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
                 pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-            with tf.variable_scope('age', reuse=True):
-                age_w = tf.get_variable(TF_WEIGHTS)
 
             tf_new_weights = tf.transpose(w, [2, 0, 1, 3])
             tf_new_weights = tf.gather_nd(tf_new_weights, tf_indices_to_keep)
             tf_new_weights = tf.transpose(tf_new_weights, [1, 2, 0, 3])
 
-            tf_age_new_weights = tf.transpose(age_w, [2,0,1,3])
-            tf_age_new_weights = tf.gather_nd(tf_age_new_weights, tf_indices_to_keep)
-            tf_age_new_weights = tf.transpose(tf_age_new_weights, [1,2,0,3])
-
-            tf_age_new_weights = tf_age_new_weights - age_epsilon
-            tf_age_new_weights = tf.clip_by_value(tf_age_new_weights, min_age, max_age)
-
             update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-            update_ops.append(tf.assign(age_w, tf_age_new_weights, validate_shape=False))
+
             if research_parameters['optimizer'] == 'Momentum':
                 new_weight_vel = tf.transpose(w_vel, [2, 0, 1, 3])
                 new_weight_vel = tf.gather_nd(new_weight_vel, tf_indices_to_keep)
@@ -465,9 +392,6 @@ def remove_from_fulcon(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
     global cnn_hyperparameters, cnn_ops
     global logger
 
-    age_epsilon = 0.02
-    max_age = 2.0
-    min_age = 0.5
     update_ops = []
 
     for tmp_op in reversed(cnn_ops):
@@ -504,31 +428,17 @@ def remove_from_fulcon(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
             b_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
             pool_b_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-        with tf.variable_scope('age', reuse=True):
-            age_w, age_b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
 
         tf_new_weights = tf.transpose(w)
         tf_new_weights = tf.gather_nd(tf_new_weights, tf_indices_to_keep)
         tf_new_weights = tf.transpose(tf_new_weights, name='new_weights')
 
-        tf_age_new_weights = tf.transpose(age_w)
-        tf_age_new_weights = tf.gather_nd(tf_age_new_weights, tf_indices_to_keep)
-        tf_age_new_weights = tf.transpose(tf_age_new_weights, name='new_age_weights')
-
-        tf_age_new_weights = tf_age_new_weights - age_epsilon
-        tf_age_new_weights = tf.clip_by_value(tf_age_new_weights, min_age, max_age)
-
         update_ops.append(tf.assign(w, tf_new_weights*tf_weight_bump_factor, validate_shape=False))
-        update_ops.append(tf.assign(age_w, tf_age_new_weights, validate_shape=False))
 
         tf_new_biases = tf.reshape(tf.gather(b, tf_indices_to_keep), shape=[-1], name='new_bias')
 
-        tf_age_new_biases = tf.reshape(tf.gather(age_b, tf_indices_to_keep), shape=[-1], name = 'new_age_bias')
-        tf_age_new_biases = tf_age_new_biases - age_epsilon
-        tf_age_new_biases = tf.clip_by_value(tf_age_new_biases,min_age,max_age)
 
         update_ops.append(tf.assign(b, tf_new_biases*tf_weight_bump_factor, validate_shape=False))
-        update_ops.append(tf.assign(age_b, tf_age_new_biases, validate_shape=False))
 
         tf_new_acts = tf.reshape(tf.gather(act, tf_indices_to_keep),[-1])
         update_ops.append(tf.assign(act,tf_new_acts, validate_shape=False))
@@ -561,18 +471,11 @@ def remove_from_fulcon(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
             w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
             pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-        with tf.variable_scope('age', reuse=True):
-            age_w = tf.get_variable(TF_WEIGHTS)
 
         tf_new_weights = tf.identity(w)
         tf_new_weights = tf.gather_nd(tf_new_weights, tf_indices_to_keep)
 
-        tf_age_new_weights = tf.gather_nd(tf_new_weights, tf_indices_to_keep)
-        tf_age_new_weights = tf_age_new_weights - age_epsilon
-        tf_age_new_weights = tf.clip_by_value(tf_age_new_weights,min_age,max_age)
-
         update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-        update_ops.append(tf.assign(age_w, tf_age_new_weights, validate_shape=False))
 
         new_weight_vel = tf.gather_nd(w_vel, tf_indices_to_keep)
 

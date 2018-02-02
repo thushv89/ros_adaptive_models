@@ -61,7 +61,6 @@ class AdaCNNAdaptingQLearner(object):
         self.filter_bound_vec = params['filter_vector'] # a vector that gives the upper bound for each convolution and pooling layer ( use 0 for pooling)
         assert len(self.filter_bound_vec) == self.net_depth, 'net_depth (%d) parameter does not match the size of the filter bound vec (%d)'%(self.net_depth,len(self.filter_bound_vec))
         self.min_filter_threshold = params['filter_min_threshold'] # The minimum bound for each convolution layer
-        self.min_fulcon_threshold = params['fulcon_min_threshold'] # The minimum neurons in a fulcon layer
 
         # Things used for peanalizing reward
         # e.g. Taking too many add actions without a significant reward
@@ -1182,9 +1181,6 @@ class AdaCNNAdaptingQLearner(object):
                 else:  # new
                     self.same_action_count = 0  # reset action count # new
                 self.verbose_logger.info('Reward after magnification: %.5f', reward)'''
-
-        # if complete_do_nothing:
-        #    reward = -1e-3# * max(self.same_action_count+1,5)
 
         self.reward_logger.info("%d:%d:%s:%.3f:%.3f:%.5f", self.global_time_stamp, data['batch_id'], ai_list,
                                 data['prev_pool_accuracy'], data['pool_accuracy'], reward)
