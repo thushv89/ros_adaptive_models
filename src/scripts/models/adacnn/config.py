@@ -44,7 +44,7 @@ FC1_WEIGHTS = 600
 FC1_WEIGHTS_DETACHED = 200
 
 BATCH_SIZE = 10
-USE_DROPOUT = False
+USE_DROPOUT = True
 IN_DROPOUT = 0.1
 LAYER_DROPOUT = 0.5
 L2_BETA = 0.0001
@@ -127,10 +127,10 @@ def setup_best_user_dependent_hyperparameters():
 
     # Best performing model from model search
 
-    TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [2, 4, 3, 32], 'pool1': [1, 4, 8, 1], 'conv2': [4, 8, 32, 32],
+    TF_ANG_VAR_SHAPES_DETACHED = {'conv1': [2, 4, 3, 64], 'pool1': [1, 4, 8, 1], 'conv2': [4, 8, 64, 64],
                                   'pool2': [1, 3, 3, 1],
-                                  'conv3': [2, 4, 32, 64], 'pool3': [1, 3, 3, 1], 'conv4': [2, 2, 64, 64],
-                                  'fc1': [fc_h * fc_w * 64, FC1_WEIGHTS_DETACHED],
+                                  'conv3': [2, 4, 64, 128], 'pool3': [1, 3, 3, 1], 'conv4': [2, 2, 128, 128],
+                                  'fc1': [fc_h * fc_w * 128, FC1_WEIGHTS_DETACHED],
                                   'out': [FC1_WEIGHTS_DETACHED, 1]}
 
     TF_FIRST_FC_ID = 'fc1'

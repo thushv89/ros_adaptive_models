@@ -11,7 +11,7 @@ logging_level = logging.INFO
 logging_format = '[%(name)s] [%(funcName)s] %(message)s'
 
 logger = logging.getLogger('ModelsUtilsLogger')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging_level)
 console = logging.StreamHandler(sys.stdout)
 console.setFormatter(logging.Formatter(logging_format))
 console.setLevel(logging_level)

@@ -18,7 +18,7 @@ class DataGenerator(object):
         self.tf_label_ph = tf.placeholder(shape=[self.batch_size], dtype=tf.int32)
 
         self.session = _session
-
+        self.dataset_fnames = _dataset_fnames
         self.dataset_idx = [0 for _ in range(len(_dataset_fnames))]
         self.is_testing_data = _is_testing_data
 
@@ -73,3 +73,7 @@ class DataGenerator(object):
         ind_to_sample = sorted(ind_to_sample)
 
         return self.img_ids[env_id][ind_to_sample], self.images[env_id][ind_to_sample, :, :, :], self.labels[env_id][ind_to_sample, 0]
+
+
+    def reset_index(self):
+        self.dataset_idx = [0 for _ in range(len(self.dataset_fnames))]

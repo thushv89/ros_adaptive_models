@@ -328,31 +328,33 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
     if op == last_conv_id:
 
         with tf.variable_scope(first_fc, reuse=True) as scope:
-            w = tf.get_variable(TF_WEIGHTS)
-            with tf.variable_scope(TF_WEIGHTS, reuse=True) as child_scope:
-                w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
-                pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
+            for di in ['left','straight','right']:
+                with tf.variable_scope(di,reuse=True):
+                    w = tf.get_variable(TF_WEIGHTS)
+                    with tf.variable_scope(TF_WEIGHTS, reuse=True) as child_scope:
+                        w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
+                        pool_w_vel = tf.get_variable(TF_POOL_MOMENTUM)
 
-            # Making fulcon indices from the last convolution filter indices to be removed
-            # by having for each index i, (i*final_w*final_w)-> ((i+1)*final_w*final_w)
-            tf_offset = tf.cast(tf.reshape(tf.range(0, final_2d_height*final_2d_width),[1,-1]),dtype=tf.int64)
-            tf_fulcon_indices_to_keep = tf.reshape(tf_indices_to_keep,[-1,1])
-            tf_fulcon_indices_to_keep = tf.tile(tf_fulcon_indices_to_keep,[1,final_2d_height*final_2d_width])
-            tf_fulcon_indices_to_keep = tf_fulcon_indices_to_keep + tf_offset
-            tf_fulcon_indices_to_keep = tf.reshape(tf_fulcon_indices_to_keep,[-1,1])
+                    # Making fulcon indices from the last convolution filter indices to be removed
+                    # by having for each index i, (i*final_w*final_w)-> ((i+1)*final_w*final_w)
+                    tf_offset = tf.cast(tf.reshape(tf.range(0, final_2d_height*final_2d_width),[1,-1]),dtype=tf.int64)
+                    tf_fulcon_indices_to_keep = tf.reshape(tf_indices_to_keep,[-1,1])
+                    tf_fulcon_indices_to_keep = tf.tile(tf_fulcon_indices_to_keep,[1,final_2d_height*final_2d_width])
+                    tf_fulcon_indices_to_keep = tf_fulcon_indices_to_keep + tf_offset
+                    tf_fulcon_indices_to_keep = tf.reshape(tf_fulcon_indices_to_keep,[-1,1])
 
-            tf_new_weights = tf.gather_nd(w, tf_fulcon_indices_to_keep)
+                    tf_new_weights = tf.gather_nd(w, tf_fulcon_indices_to_keep)
 
-            update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
+                    update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
 
 
-            if research_parameters['optimizer'] == 'Momentum':
+                    if research_parameters['optimizer'] == 'Momentum':
 
-                new_weight_vel = tf.gather_nd(w_vel, tf_fulcon_indices_to_keep)
-                new_pool_w_vel = tf.gather_nd(pool_w_vel, tf_fulcon_indices_to_keep)
+                        new_weight_vel = tf.gather_nd(w_vel, tf_fulcon_indices_to_keep)
+                        new_pool_w_vel = tf.gather_nd(pool_w_vel, tf_fulcon_indices_to_keep)
 
-                update_ops.append(tf.assign(w_vel, new_weight_vel, validate_shape=False))
-                update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
+                        update_ops.append(tf.assign(w_vel, new_weight_vel, validate_shape=False))
+                        update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
 
     else:
         # change in hyperparameter of next conv op

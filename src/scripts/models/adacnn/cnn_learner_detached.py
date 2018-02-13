@@ -118,8 +118,12 @@ def logits_detached(tf_inputs,is_training):
                                 with tf.variable_scope(di, reuse=True):
                                     weights, bias = tf.get_variable(config.TF_WEIGHTS_STR), tf.get_variable(
                                         config.TF_BIAS_STR)
-                                    h_list[di]=models_utils.activate(tf.matmul(h, weights) + bias, activation)
+                                    h_tmp = models_utils.activate(tf.matmul(h, weights) + bias, activation)
 
+                                    if config.USE_DROPOUT:
+                                        h_list[di]= tf.nn.dropout(h_tmp, keep_prob=1.0 - config.LAYER_DROPOUT, name='dropout')
+                                    else:
+                                        h_list[di]=h_tmp
                         else:
                             raise NotImplementedError
                     else:
@@ -491,14 +495,18 @@ if __name__ == '__main__':
     bumpPredictionlogger.addHandler(bumpfh)
     bumpPredictionlogger.info('#ID:Actual:Predicted')
 
-    accuracy_logger = logging.getLogger('AccuracyLogger')
-    accuracy_logger.setLevel(logging.INFO)
-    accuracyFH = logging.FileHandler(IMG_DIR + os.sep + 'accuracy.log', mode='w')
-    accuracyFH.setFormatter(logging.Formatter('%(message)s'))
-    accuracyFH.setLevel(logging.INFO)
-    accuracy_logger.addHandler(accuracyFH)
-    accuracy_logger.info('#Train EnvID, Epoch, Test EnvID, Non-collision Accuracy,Non-collision Accuracy(Soft),Non-collision loss,,' +
+    accuracy_loggers = []
+    for env_idx in range(3):
+
+        accuracy_logger = logging.getLogger('AccuracyLogger_'+str(env_idx))
+        accuracy_logger.setLevel(logging.INFO)
+        accuracyFH = logging.FileHandler(IMG_DIR + os.sep + 'accuracy_'+ str(env_idx) +'_.log', mode='w')
+        accuracyFH.setFormatter(logging.Formatter('%(message)s'))
+        accuracyFH.setLevel(logging.INFO)
+        accuracy_logger.addHandler(accuracyFH)
+        accuracy_logger.info('#Train EnvID, Epoch, Test EnvID, Non-collision Accuracy,Non-collision Accuracy(Soft),Non-collision loss,' +
                          'Preci-NC-L,Preci-NC-S,Preci-NC-R,,Rec-NC-L,Rec-NC-S,Rec-NC-R')
+        accuracy_loggers.append(accuracy_logger)
 
     graph = tf.Graph()
     configp = tf.ConfigProto(allow_soft_placement=True,log_device_placement=False)
@@ -526,12 +534,12 @@ if __name__ == '__main__':
 
         tf.global_variables_initializer().run(session=sess)
 
-        for main_ep in range(2):
+        for main_ep in range(3):
             for train_env_idx in range(num_env):
 
                 logger.info('Training with data of environment %d',train_env_idx)
 
-                for epoch in range(150):
+                for epoch in range(100):
 
                     # ========================================================================
                     # Train on Training Dataset
@@ -551,7 +559,7 @@ if __name__ == '__main__':
                     # ============================================================================
 
                     # Test Phase
-                    if (epoch+1)%10==0:
+                    if (epoch+1)%5==0:
                         logger.info('\tTesting phase (Epoch %d)',epoch+1)
                         for test_env_idx in range(num_env):
                             logger.info('\t\tTesting environment (%d)',test_env_idx)
@@ -594,7 +602,7 @@ if __name__ == '__main__':
                                                                                epoch))'''
                             # ============================================================================
 
-                            accuracy_logger.info('%d,%d,%d,%.3f,%.3f,%.3f,%s,%s',
+                            accuracy_loggers[test_env_idx].info('%d,%d,%d,%.3f,%.3f,%.3f,%s,%s',
                                                  train_env_idx,epoch,test_env_idx,test_prediction_results['accuracy'],
                                                  test_prediction_results['soft_accuracy'], train_results['loss'], precision_string, recall_string)
 

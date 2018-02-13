@@ -22,7 +22,7 @@ def get_research_hyperparameters(adapt, use_pooling,logging_level):
         'remove_filters_by': 'Activation', # The criteria for removing filters (AdaCNN) set of minimum maximum mean activations
         'optimize_end_to_end': True, # if true functions such as add and finetune will optimize the network from starting layer to end (fulcon_out)
         'loss_diff_threshold': 0.02, # This is used to check if the loss reduction has stabalized
-        'start_adapting_after': 500, # Acts as a warming up phase, adapting from the very begining can make CNNs unstable
+        'start_adapting_after': 10, # Acts as a warming up phase, adapting from the very begining can make CNNs unstable
         'debugging': True if logging_level == logging.DEBUG else False,
         'stop_training_at': 11000,  # If needed to truncate training earlier
         'train_min_activation': False,
@@ -35,7 +35,7 @@ def get_research_hyperparameters(adapt, use_pooling,logging_level):
         'hard_pool_max_threshold': 0.5,  # when there's not much data use a higher pool accumulation rate
     }
 
-    research_parameters['start_adapting_after'] = 1000
+    research_parameters['start_adapting_after'] = 10
 
     if adapt:
         # quickly accumulate data at the beginning
@@ -47,16 +47,16 @@ def get_research_hyperparameters(adapt, use_pooling,logging_level):
 def get_interval_related_hyperparameters():
 
     interval_parameters = {
-        'history_dump_interval': 500,
+        'history_dump_interval': 1,
         'policy_interval': 0,  # number of batches to process for each policy iteration
         'finetune_interval': 0,
         'orig_finetune_interval':0,
-        'test_interval': 100
+        'test_interval': 5
     }
 
-    interval_parameters['policy_interval'] = 10
-    interval_parameters['finetune_interval'] = 10
-    interval_parameters['orig_finetune_interval'] = 10
+    interval_parameters['policy_interval'] = 1
+    interval_parameters['finetune_interval'] = 1
+    interval_parameters['orig_finetune_interval'] = 1
 
     return interval_parameters
 
@@ -81,6 +81,7 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     model_hyperparameters['iterations_per_batch'] = 1
 
     model_hyperparameters['epochs'] = 5
+    model_hyperparameters['epochs_per_env']=100
     model_hyperparameters['num_env'] = 3
     model_hyperparameters['start_eps'] = 0.5
     model_hyperparameters['eps_decay'] = 0.9
@@ -98,19 +99,16 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
 
     if not adapt_structure:
 
-        cnn_string = "C,2,4,2,2,32#C,4,8,2,2,32#C,2,4,2,2,64#C,2,2,1,1,64" + \
+        cnn_string = "C,2,4,2,2,64#C,4,8,2,2,64#C,2,4,2,2,128#C,2,2,1,1,128" + \
                      "#FC,100,0,0,0,0#Terminate,0,0,0,0,0"
     else:
         cnn_string = "C,2,4,2,2,16#C,4,8,2,2,16#C,2,4,2,2,16#C,2,2,1,1,16" + \
                      "#FC,100,0,0,0,0#Terminate,0,0,0,0,0"
 
-
-
-        start_filter_vector = [16,16,16,16,0]
-        filter_vector = [32, 32, 64, 64, 0]
+        start_filter_vector = [16,16,16,16]
+        filter_vector = [64, 64, 128, 128]
         add_amount, remove_amount, add_fulcon_amount = 4, 2, -1
         filter_min_threshold = 12
-
 
     model_hyperparameters['n_tasks'] = 2
     model_hyperparameters['binned_data_dist_length'] = 3

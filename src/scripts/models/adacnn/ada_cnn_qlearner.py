@@ -24,19 +24,12 @@ class AdaCNNAdaptingQLearner(object):
     def __init__(self, **params):
 
         # Action related Hyperparameters
-        self.qlearner_type = params['qlearner_type']
-        if self.qlearner_type=='growth':
-            self.actions = [
-                ('do_nothing', 0), ('finetune', 0),('naive_train', 0),
-                ('add', params['add_amount'])
-            ]
-        elif self.qlearner_type=='prune':
-            self.actions = [
-                ('do_nothing', 0), ('finetune', 0),('naive_train', 0),
-                ('remove', params['remove_amount'])
-            ]
-        else:
-            raise AttributeError
+
+        self.actions = [
+            ['finetune', 0],['naive_train', 0],['do_nothing',0],
+            ['add', params['add_amount']],['remove',params['rmv_amount']]
+        ]
+
         self.binned_data_dist_length = params['binned_data_dist_length']
 
         # RL Agent Specifict Hyperparameters
@@ -45,7 +38,7 @@ class AdaCNNAdaptingQLearner(object):
         self.target_update_rate = params['target_update_rate']
         self.batch_size = params['batch_size']
         self.add_amount = params['add_amount']
-        self.add_fulcon_amount = params['add_fulcon_amount']
+        self.remove_amount = params['rmv_amount']
         self.epsilon = params['epsilon']
         self.min_epsilon = 0.1
 
@@ -55,9 +48,7 @@ class AdaCNNAdaptingQLearner(object):
         # CNN specific Hyperparametrs
         self.net_depth = params['net_depth'] # the depth of the network (counting pooling + convolution + fulcon layers)
         self.n_conv = params['n_conv']  # number of convolutional layers
-        self.n_fulcon = params['n_fulcon'] # number of fully connected layers
         self.conv_ids = params['conv_ids'] # ids of the convolution layers
-        self.fulcon_ids = params['fulcon_ids'] # ids of the fulcon layers
         self.filter_bound_vec = params['filter_vector'] # a vector that gives the upper bound for each convolution and pooling layer ( use 0 for pooling)
         assert len(self.filter_bound_vec) == self.net_depth, 'net_depth (%d) parameter does not match the size of the filter bound vec (%d)'%(self.net_depth,len(self.filter_bound_vec))
         self.min_filter_threshold = params['filter_min_threshold'] # The minimum bound for each convolution layer
@@ -80,7 +71,7 @@ class AdaCNNAdaptingQLearner(object):
         self.setup_loggers()
 
         # RL Agent Input/Output sizes
-        self.local_actions, self.global_actions = 1, 3
+        self.local_actions, self.global_actions = 2, 3
         self.output_size = self.calculate_output_size()
         self.input_size = self.calculate_input_size()
 
@@ -103,6 +94,7 @@ class AdaCNNAdaptingQLearner(object):
 
         self.previous_reward = 0
         self.prev_prev_pool_accuracy = 0
+        self.max_pool_accuracy = 0
 
         # Accumulating random states for q_rand^eval metric
         self.rand_state_accum_rate = 0.25
@@ -172,11 +164,11 @@ class AdaCNNAdaptingQLearner(object):
 
     def get_finetune_action(self,data):
         state = data['filter_counts_list'] + data['binned_data_dist']
-        return state, [self.actions[1] if li in self.conv_ids else None for li in range(self.net_depth)],[]
+        return state, [self.actions[0] if li in self.conv_ids else None for li in range(self.net_depth)],[]
 
     def get_donothing_action(self,data):
         state = data['filter_counts_list'] + data['binned_data_dist']
-        return state, [self.actions[0] if li in self.conv_ids else None for li in range(self.net_depth)],[]
+        return state, [self.actions[1] if li in self.conv_ids else None for li in range(self.net_depth)],[]
 
     def get_naivetrain_action(self,data):
         state = data['filter_counts_list'] + data['binned_data_dist']
@@ -192,10 +184,10 @@ class AdaCNNAdaptingQLearner(object):
         :return:
         '''
 
-        self.verbose_logger = logging.getLogger('verbose_q_learner_logger_'+self.qlearner_type)
+        self.verbose_logger = logging.getLogger('verbose_q_learner_logger')
         self.verbose_logger.propagate = False
         self.verbose_logger.setLevel(logging.DEBUG)
-        vHandler = logging.FileHandler(self.persit_dir + os.sep + 'ada_cnn_qlearner_' + self.qlearner_type  +'.log', mode='w')
+        vHandler = logging.FileHandler(self.persit_dir + os.sep + 'ada_cnn_qlearner.log', mode='w')
         vHandler.setLevel(logging.INFO)
         vHandler.setFormatter(logging.Formatter('%(message)s'))
         self.verbose_logger.addHandler(vHandler)
@@ -204,26 +196,26 @@ class AdaCNNAdaptingQLearner(object):
         v_console.setLevel(logging_level)
         self.verbose_logger.addHandler(v_console)
 
-        self.q_logger = logging.getLogger('pred_q_logger_'+self.qlearner_type)
+        self.q_logger = logging.getLogger('pred_q_logger')
         self.q_logger.propagate = False
         self.q_logger.setLevel(logging.INFO)
-        q_distHandler = logging.FileHandler(self.persit_dir + os.sep + 'predicted_q_' + self.qlearner_type +'.log', mode='w')
+        q_distHandler = logging.FileHandler(self.persit_dir + os.sep + 'predicted_q.log', mode='w')
         q_distHandler.setFormatter(logging.Formatter('%(message)s'))
         self.q_logger.addHandler(q_distHandler)
         self.q_logger.info(self.get_action_string_for_logging())
 
-        self.reward_logger = logging.getLogger('reward_logger'+self.qlearner_type)
+        self.reward_logger = logging.getLogger('reward_logger')
         self.reward_logger.propagate = False
         self.reward_logger.setLevel(logging.INFO)
-        rewarddistHandler = logging.FileHandler(self.persit_dir + os.sep + 'reward_'+ self.qlearner_type +'.log', mode='w')
+        rewarddistHandler = logging.FileHandler(self.persit_dir + os.sep + 'reward.log', mode='w')
         rewarddistHandler.setFormatter(logging.Formatter('%(message)s'))
         self.reward_logger.addHandler(rewarddistHandler)
-        self.reward_logger.info('#global_time_stamp:batch_id:action_list:prev_pool_acc:pool_acc:reward')
+        self.reward_logger.info('#main_epoch,train_env_idx,epoch,batch_id,action_list,prev_pool_acc,pool_acc,reward')
 
-        self.action_logger = logging.getLogger('action_logger'+self.qlearner_type)
+        self.action_logger = logging.getLogger('action_logger')
         self.action_logger.propagate = False
         self.action_logger.setLevel(logging.INFO)
-        actionHandler = logging.FileHandler(self.persit_dir + os.sep + 'actions_'+ self.qlearner_type + '.log', mode='w')
+        actionHandler = logging.FileHandler(self.persit_dir + os.sep + 'actions.log', mode='w')
         actionHandler.setFormatter(logging.Formatter('%(message)s'))
         self.action_logger.addHandler(actionHandler)
 
@@ -235,8 +227,6 @@ class AdaCNNAdaptingQLearner(object):
         total = 0
         for _ in range(self.local_actions):  # add and remove actions
             total += self.n_conv
-        for _ in range(self.local_actions):
-            total += self.n_fulcon
 
         total += self.global_actions  # finetune and donothing
         self.verbose_logger.info('Calculated output action space size: %d',total)
@@ -340,7 +330,7 @@ class AdaCNNAdaptingQLearner(object):
         return tf.reduce_mean(((tf_output*tf_mask) - tf_targets) ** 2)
 
     def tf_momentum_optimize(self, loss):
-        optimizer = tf.train.MomentumOptimizer(learning_rate=self.learning_rate,
+        optimizer = tf.train.RMSPropOptimizer(learning_rate=self.learning_rate,
                                                momentum=self.momentum).minimize(loss)
         return optimizer
 
@@ -386,35 +376,34 @@ class AdaCNNAdaptingQLearner(object):
         :param action_idx:
         :return: 0...n_conv for add actions corresponding to each layer n_conv + 1 -> do_nothing, n_conv+2 -> finetune n_conv + 3 -> naive_train
         '''
-        self.verbose_logger.info('Getting action list from action index')
+        self.verbose_logger.debug('Getting action list from action index')
         self.verbose_logger.debug('Got (idx): %d\n', action_idx)
         layer_actions = [None for _ in range(self.net_depth)]
-
+        self.verbose_logger.debug('Layer action size: %d\n',self.net_depth)
         if action_idx < self.output_size - self.global_actions:
-            primary_action = action_idx // (self.n_conv + self.n_fulcon)  # action
-            secondary_action = action_idx % (self.n_conv + self.n_fulcon)  # the layer the action will be executed
-            if primary_action == 0:
-                tmp_a = self.actions[3]
+            action_type = action_idx // self.n_conv  # action
+            action_affect_layer = action_idx % self.n_conv  # the layer the action will be executed
 
-            for ci, c_id in enumerate(self.conv_ids + self.fulcon_ids):
-                if ci == secondary_action:
+            if action_type == 0:
+                tmp_a = self.actions[self.global_actions]
+            if action_type == 1:
+                tmp_a = self.actions[self.global_actions+1]
+
+            for ci, c_id in enumerate(self.conv_ids):
+                if ci == action_affect_layer:
+                    print('ds')
                     layer_actions[c_id] = list(tmp_a)
-                    if c_id in self.conv_ids:
-                        layer_actions[c_id][1] = self.add_amount
-                    elif c_id in self.fulcon_ids:
-                        layer_actions[c_id][1] = self.add_fulcon_amount
-                    else:
-                        raise AttributeError
-                    layer_actions[c_id] = tuple(layer_actions[c_id])
                 else:
-                    layer_actions[c_id] = self.actions[0]
+                    layer_actions[c_id] = self.actions[1]
 
-        elif action_idx == self.output_size - 3:
-            layer_actions = [self.actions[0] if (li in self.conv_ids or li in self.fulcon_ids) else None for li in range(self.net_depth)]
-        elif action_idx == self.output_size - 2:
-            layer_actions = [self.actions[1] if (li in self.conv_ids or li in self.fulcon_ids) else None for li in range(self.net_depth)]
-        elif action_idx == self.output_size - 1:
-            layer_actions = [self.actions[2] if (li in self.conv_ids or li in self.fulcon_ids) else None for li in range(self.net_depth)]
+            print(layer_actions)
+
+        elif action_idx == self.output_size - self.global_actions:
+            layer_actions = [self.actions[0] if (li in self.conv_ids) else None for li in range(self.net_depth)]
+        elif action_idx == self.output_size - self.global_actions + 1:
+            layer_actions = [self.actions[1] if (li in self.conv_ids) else None for li in range(self.net_depth)]
+        elif action_idx == self.output_size - self.global_actions + 2:
+            layer_actions = [self.actions[2] if (li in self.conv_ids) else None for li in range(self.net_depth)]
 
         assert len(layer_actions) == self.net_depth
         self.verbose_logger.debug('Return (action_list): %s\n', layer_actions)
@@ -426,19 +415,15 @@ class AdaCNNAdaptingQLearner(object):
         :return:
         '''
         action_str = 'Time-Stamp,'
-        if self.qlearner_type=='prune':
-            for ci in self.conv_ids:
-                action_str += 'Remove-%d,'%ci
-        elif self.qlearner_type=='growth':
-            for ci in self.conv_ids:
-                action_str += 'Add-%d,' % ci
-        else:
-            raise AttributeError
 
-        action_str+='DoNothing,'
+        for ci in self.conv_ids:
+            action_str += 'Add-%d,' % ci
+        for ci in self.conv_ids:
+            action_str += 'Remove-%d,' % ci
+
         action_str+='Finetune,'
-        action_str+='NaiveTrain'
-
+        action_str+='NaiveTrain,'
+        action_str+='DoNothing'
         return action_str
 
     def index_from_action_list(self, action_list):
@@ -454,23 +439,24 @@ class AdaCNNAdaptingQLearner(object):
         :param action_list:
         :return:
         '''
-        self.verbose_logger.info('Getting action index from action list')
+        self.verbose_logger.debug('Getting action index from action list')
         self.verbose_logger.debug('Got: %s\n', action_list)
+        #
         if self.get_action_string(action_list) == \
                 self.get_action_string(
-                    [self.actions[0] if li in (self.conv_ids + self.fulcon_ids) else None for li in range(self.net_depth)]):
-            self.verbose_logger.debug('Return: %d\n', self.output_size - 2)
-            return self.output_size - 3
+                    [self.actions[0] if li in self.conv_ids else None for li in range(self.net_depth)]):
+            self.verbose_logger.debug('Return (index): %d\n', self.output_size - self.global_actions)
+            return self.output_size - self.global_actions
         elif self.get_action_string(action_list) == \
                 self.get_action_string(
-                    [self.actions[1] if li in (self.conv_ids + self.fulcon_ids) else None for li in range(self.net_depth)]):
-            self.verbose_logger.debug('Return (index): %d\n', self.output_size - 1)
-            return self.output_size - 2
+                    [self.actions[1] if li in self.conv_ids else None for li in range(self.net_depth)]):
+            self.verbose_logger.debug('Return (index): %d\n', self.output_size - self.global_actions +1)
+            return self.output_size - self.global_actions + 1
         elif self.get_action_string(action_list) == \
                 self.get_action_string(
-                    [self.actions[2] if li in (self.conv_ids + self.fulcon_ids) else None for li in range(self.net_depth)]):
-            self.verbose_logger.debug('Return (index): %d\n', self.output_size - 1)
-            return self.output_size - 1
+                    [self.actions[2] if li in self.conv_ids else None for li in range(self.net_depth)]):
+            self.verbose_logger.debug('Return (index): %d\n', self.output_size - self.global_actions + 2)
+            return self.output_size - self.global_actions + 2
 
         else:
             conv_id = 0
@@ -481,10 +467,12 @@ class AdaCNNAdaptingQLearner(object):
                 if la[0] == self.actions[self.global_actions][0]:
                     secondary_idx = conv_id
                     primary_idx = 0
-
+                elif la[0] == self.actions[self.global_actions+1][0]:
+                    secondary_idx = conv_id
+                    primary_idx = 1
                 conv_id += 1
 
-            action_idx = primary_idx * (self.n_conv+self.n_fulcon) + secondary_idx
+            action_idx = primary_idx * self.n_conv + secondary_idx
             self.verbose_logger.debug('Primary %d Secondary %d', primary_idx, secondary_idx)
             self.verbose_logger.debug('Return (index): %d\n', action_idx)
             return action_idx
@@ -508,11 +496,12 @@ class AdaCNNAdaptingQLearner(object):
         invalid_actions = []
         self.verbose_logger.debug('Getting new valid action (greedy)')
         layer_actions_list = self.action_list_with_index(action_idx)
+
         # while loop for checkin the validity of the action and choosing another if not
         while len(q_for_actions) > 0 and not found_valid_action and action_idx < self.output_size - 2:
 
             # if chosen action is do_nothing or finetune
-            if action_idx >= self.output_size - 2:
+            if action_idx >= self.output_size - self.global_actions:
                 found_valid_action = True
                 break
 
@@ -552,7 +541,7 @@ class AdaCNNAdaptingQLearner(object):
                 else:
                     found_valid_action = True
 
-        if action_idx >= self.output_size - 2:
+        if action_idx >= self.output_size - self.global_actions:
             found_valid_action = True
 
         found_valid_action = True
@@ -590,10 +579,10 @@ class AdaCNNAdaptingQLearner(object):
         invalid_actions=[]
         layer_actions_list = self.action_list_with_index(action_idx)
         # while loop for checkin the validity of the action and choosing another if not
-        while not found_valid_action and action_idx < self.output_size - 2:
+        while not found_valid_action and action_idx < self.output_size - self.global_actions:
 
             # if chosen action is do_nothing or finetune
-            if action_idx >= self.output_size - 2:
+            if action_idx >= self.output_size - self.global_actions:
                 found_valid_action = True
                 break
 
@@ -626,7 +615,7 @@ class AdaCNNAdaptingQLearner(object):
                 else:
                     found_valid_action = True
 
-            if action_idx >= self.output_size - 2:
+            if action_idx >= self.output_size - self.global_actions:
                 found_valid_action = True
 
         found_valid_action = True
@@ -645,9 +634,9 @@ class AdaCNNAdaptingQLearner(object):
 
         allowed_actions = allowed_actions.tolist()
 
-        while not found_valid_action and action_idx < self.output_size - 2:
+        while not found_valid_action and action_idx < self.output_size - self.global_actions:
             self.verbose_logger.debug('Checking action validity')
-            if action_idx >= self.output_size - 2:
+            if action_idx >= self.output_size - self.global_actions:
                 found_valid_action = True
                 break
 
@@ -675,9 +664,6 @@ class AdaCNNAdaptingQLearner(object):
                 else:
                     found_valid_action = True
 
-            if action_idx >= self.output_size - 2:
-                found_valid_action = True
-
         found_valid_action = True
 
         return layer_actions_list, found_valid_action, invalid_actions
@@ -696,7 +682,7 @@ class AdaCNNAdaptingQLearner(object):
 
         if len(history_t_plus_1) == self.state_history_length:
             curr_x = np.asarray(self.phi(history_t_plus_1)).reshape(1, -1)
-            q_for_actions = self.session.run(self.tf_out_target_op, feed_dict={self.tf_state_input: curr_x})
+            q_for_actions = self.session.run(self.tf_out_op, feed_dict={self.tf_state_input: curr_x})
             q_for_actions = q_for_actions.flatten().tolist()
             self.current_q_for_actions = q_for_actions
 
@@ -717,7 +703,7 @@ class AdaCNNAdaptingQLearner(object):
 
         self.verbose_logger.debug('Getting new action (greedy)')
         curr_x = np.asarray(self.phi(history_t_plus_1)).reshape(1, -1)
-        q_for_actions = self.session.run(self.tf_out_target_op, feed_dict={self.tf_state_input: curr_x})
+        q_for_actions = self.session.run(self.tf_out_op, feed_dict={self.tf_state_input: curr_x})
         q_for_actions = q_for_actions.flatten().tolist()
         self.current_q_for_actions = q_for_actions
 
@@ -938,7 +924,7 @@ class AdaCNNAdaptingQLearner(object):
         :param s: current state
         :return:
         '''
-        # state looks like [distMSE, filter_count_1, filter_count_2, ...]
+        # state looks like [filter_count_1, filter_count_2, ..., binned_dist_current_batch]
         norm_state = np.zeros((1, self.net_depth))
         self.verbose_logger.debug('Before normalization: %s', s)
         # enumerate only the depth related part of the state
@@ -1112,7 +1098,7 @@ class AdaCNNAdaptingQLearner(object):
                     self.tf_state_input: x, self.tf_q_targets: ohe_targets, self.tf_q_mask: y
                 })
 
-                if self.global_time_stamp % self.target_update_rate == 0 and self.local_time_stamp % (self.n_conv+self.n_fulcon) == 0:
+                if self.global_time_stamp % self.target_update_rate == 0 and self.local_time_stamp % self.n_conv == 0:
                     self.verbose_logger.info('Coppying the Q approximator as the Target Network')
                     # self.target_network = self.regressor.partial_fit(x, y)
                     _ = self.session.run([self.tf_target_update_ops])
@@ -1134,10 +1120,12 @@ class AdaCNNAdaptingQLearner(object):
 
         # If accuracy is pushed up  or accuracy drop is small return top_k/num_classes
         # If accuracy drop is very large return that drop
-        accuracy_push_reward = self.top_k_accuracy/self.num_classes if (data['prev_pool_accuracy'] - data['pool_accuracy'])/100.0<= self.top_k_accuracy/self.num_classes \
-            else (data['prev_pool_accuracy'] - data['pool_accuracy'])/100.0
 
-        mean_accuracy = accuracy_push_reward if data['pool_accuracy'] > data['max_pool_accuracy'] else -accuracy_push_reward
+        if 'do_nothing' not in curr_action_string or 'finetune' not in curr_action_string:
+            mean_accuracy = (data['pool_accuracy']/100.0) - (self.max_pool_accuracy/100.0)
+        else:
+            mean_accuracy = (data['pool_accuracy']/100.0) - (data['prev_pool_accuracy']/100.0)
+
         #immediate_mean_accuracy = (1.0 + ((data['unseen_valid_accuracy'] + data['prev_unseen_valid_accuracy'])/200.0))*\
         #                          (data['unseen_valid_accuracy'] - data['prev_unseen_valid_accuracy']) / 100.0
 
@@ -1160,8 +1148,16 @@ class AdaCNNAdaptingQLearner(object):
             else:
                 continue
 
-        reward = mean_accuracy - comp_gain #+ 0.5*immediate_mean_accuracy # new
         curr_action_string = self.get_action_string(ai_list)
+        if 'do_nothing' not in curr_action_string or 'finetune' not in curr_action_string:
+            reward = mean_accuracy - comp_gain #+ 0.5*immediate_mean_accuracy # new
+        else:
+            reward = mean_accuracy + 0.01
+
+
+
+        if data['pool_accuracy'] > self.max_pool_accuracy:
+            self.max_pool_accuracy = data['pool_accuracy']
 
         # exponential magnifier to prevent from being taken consecutively
         # Turned off on 21/09/2017
@@ -1182,7 +1178,7 @@ class AdaCNNAdaptingQLearner(object):
                     self.same_action_count = 0  # reset action count # new
                 self.verbose_logger.info('Reward after magnification: %.5f', reward)'''
 
-        self.reward_logger.info("%d:%d:%s:%.3f:%.3f:%.5f", self.global_time_stamp, data['batch_id'], ai_list,
+        self.reward_logger.info("%d,%d,%d,%s,%.3f,%.3f,%.5f", data['main_epoch'], data['train_env_idx'],data['env_epoch'], ai_list,
                                 data['prev_pool_accuracy'], data['pool_accuracy'], reward)
         # how the update on state_history looks like
         # t=5 (s2,a2),(s3,a3),(s4,a4)
@@ -1226,7 +1222,7 @@ class AdaCNNAdaptingQLearner(object):
                     self.experience.append(
                         [history_t, invalid_a, -self.top_k_accuracy / (self.num_classes * 10.0), history_t_plus_1,
                          self.global_time_stamp])
-                self.reward_logger.info("%d:%d:%s:%.3f:%.3f:%.5f", self.global_time_stamp, data['batch_id'],
+                self.reward_logger.info("%d,%d,%d,%s,%.3f,%.3f,%.5f", data['main_epoch'], data['train_env_idx'], data['env_epoch'],
                                         self.action_list_with_index(invalid_a), -1, -1, -self.top_k_accuracy / (self.num_classes))
 
             if self.global_time_stamp < 3:
@@ -1258,7 +1254,7 @@ class AdaCNNAdaptingQLearner(object):
                     x = np.append(x, s_t, axis=0)
 
             self.verbose_logger.debug('Shape of x: %s', x.shape)
-            q_pred = self.session.run(self.tf_out_target_op, feed_dict={self.tf_state_input: x})
+            q_pred = self.session.run(self.tf_out_op, feed_dict={self.tf_state_input: x})
             self.verbose_logger.debug('Shape of q_pred: %s', q_pred.shape)
             return np.mean(np.max(q_pred, axis=1))
         else:
