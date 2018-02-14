@@ -9,6 +9,13 @@ TF_CONV_WEIGHT_SHAPE_STR = 'weights_shape'
 TF_FC_WEIGHT_IN_STR = 'in_size'
 TF_FC_WEIGHT_OUT_STR = 'out_size'
 
+TF_BATCH_MU = 'batch_mu'
+TF_BATCH_VAR = 'batch_gamma'
+TF_POP_MU = 'pop_mu'
+TF_POP_VAR = 'pop_gamma'
+TF_GAMMA = 'gamma'
+TF_BETA = 'beta'
+
 TF_TRAIN_MOMENTUM = 'TrainMomentum'
 TF_POOL_MOMENTUM = 'PoolMomentum'
 

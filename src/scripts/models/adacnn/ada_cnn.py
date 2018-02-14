@@ -52,6 +52,8 @@ start_lr, decay_learning_rate, decay_rate, decay_steps = None,None,None,None
 beta, include_l2_loss = None,None
 use_dropout, in_dropout_rate, dropout_rate, current_adaptive_dropout = None, None, None,None
 pool_size = None
+use_batchnorm = None
+bn_decay = None
 
 # Constant Strings
 TF_WEIGHTS = constants.TF_WEIGHTS
@@ -80,6 +82,7 @@ def set_varialbes_with_input_arguments(adapt_structure, use_rigid_pooling):
     global start_lr, decay_learning_rate, decay_rate, decay_steps
     global batch_size, beta, include_l2_loss
     global use_dropout, in_dropout_rate, dropout_rate, current_adaptive_dropout
+    global use_batchnorm, bn_decay
     global pool_size
     global start_eps,eps_decay,valid_acc_decay
     global n_tasks, prune_min_bound, prune_max_bound
@@ -125,6 +128,9 @@ def set_varialbes_with_input_arguments(adapt_structure, use_rigid_pooling):
     dropout_rate = model_hyperparameters['dropout_rate']
     current_adaptive_dropout = dropout_rate
 
+    # Batch norm
+    use_batchnorm = model_hyperparameters['use_batchnorm']
+    bn_decay = model_hyperparameters['bn_decay']
 
     # pool parameters
     if adapt_structure or use_rigid_pooling:
@@ -188,7 +194,7 @@ tf_add_filters_ops, tf_rm_filters_ops, tf_replace_ind_ops, tf_indices_to_rm, tf_
 tf_indices, tf_indices_size, tf_replicative_factor_vec = None,None,None
 tf_update_hyp_ops = {}
 tf_action_info = None
-tf_weights_this,tf_bias_this = None, None
+tf_weights_this,tf_bias_this, tf_bn_ones_this, tf_bn_zeros_this = None, None,None, None
 tf_weights_next,tf_wvelocity_this, tf_bvelocity_this, tf_wvelocity_next = None, None, None, None
 tf_weight_shape,tf_in_size, tf_out_size = None, None, None
 increment_global_step_op = None
@@ -220,8 +226,8 @@ def define_conv_dropout_placeholder():
             conv_dropout_placeholder_dict[op] = tf.placeholder(dtype=tf.float32,shape=[None],name='dropout_'+op)
 
 
-def get_dropout_placeholder_dict():
-    global conv_dropout_placeholder_dict,cnn_hyperparameters, dropout_rate
+def get_dropout_placeholder_dict(dropout_rate):
+    global conv_dropout_placeholder_dict,cnn_hyperparameters
 
     placeholder_feed_dict = {}
     for scope in cnn_ops:
@@ -266,11 +272,25 @@ def inference(dataset, tf_cnn_hyperparameters, training):
                 x = tf.nn.conv2d(x, w, cnn_hyperparameters[op]['stride'],
                                  padding=cnn_hyperparameters[op]['padding'])
 
-                tf.add_to_collection(tf.GraphKeys.UPDATE_OPS,
-                                     tf.assign(tf.get_variable(TF_ACTIVAIONS_STR),
-                                               act_decay * tf.get_variable(TF_ACTIVAIONS_STR) + (1-act_decay)* tf.reduce_mean(tf.abs(w),axis=[0,1,2])))
                 x = utils.lrelu(x + b, name=scope.name + '/top')
 
+                if training:
+                    if use_batchnorm:
+                        batch_mu,batch_var = tf.nn.moments(x,axes=[0,1,2],keep_dims=True)
+
+                        update_batch_mean = tf.assign(tf.get_variable(constants.TF_POP_MU),
+                                                      tf.get_variable(constants.TF_POP_MU) * bn_decay + batch_mu * (1 - bn_decay))
+                        update_batch_var = tf.assign(tf.get_variable(constants.TF_POP_VAR),
+                                                     tf.get_variable(constants.TF_POP_VAR) * bn_decay + batch_var * (1 - bn_decay))
+
+                        with tf.control_dependencies([update_batch_mean, update_batch_var]):
+                            x = tf.nn.batch_normalization(x,batch_mu,batch_var,tf.get_variable(constants.TF_BETA),tf.get_variable(constants.TF_GAMMA),1e-10)
+                    else:
+
+                        x = tf.nn.batch_normalization(x, tf.get_variable(constants.TF_POP_MU),
+                                                      tf.get_variable(constants.TF_POP_VAR),
+                                                      None,
+                                                      None, 1e-10)
                 if training and use_dropout:
                     x = x * tf.reshape(conv_dropout_placeholder_dict[op], [1, 1, 1, -1])
 
@@ -306,12 +326,34 @@ def inference(dataset, tf_cnn_hyperparameters, training):
                     for di in ['left','straight','right']:
                         with tf.variable_scope(di,reuse=True):
                             w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
-                            x = utils.lrelu(x, name=scope.name + '/top')
+                            h_list[di] = utils.lrelu(tf.matmul(x, w) + b, name=scope.name + '/top')
+
+                            if training:
+                                if use_batchnorm:
+                                    batch_mu, batch_var = tf.nn.moments(h_list[di], axes=[0], keep_dims=True)
+
+                                    update_batch_mean = tf.assign(tf.get_variable(constants.TF_POP_MU),
+                                                                  tf.get_variable(
+                                                                      constants.TF_POP_MU) * bn_decay + batch_mu * (
+                                                                          1 - bn_decay))
+                                    update_batch_var = tf.assign(tf.get_variable(constants.TF_POP_VAR),
+                                                                 tf.get_variable(
+                                                                     constants.TF_POP_VAR) * bn_decay + batch_var * (
+                                                                         1 - bn_decay))
+
+                                    with tf.control_dependencies([update_batch_mean, update_batch_var]):
+                                        h_list[di] = tf.nn.batch_normalization(h_list[di], batch_mu, batch_var,
+                                                                      tf.get_variable(constants.TF_BETA),
+                                                                      tf.get_variable(constants.TF_GAMMA), 1e-10)
+                                else:
+                                    h_list[di] = tf.nn.batch_normalization(
+                                        h_list[di], tf.get_variable(constants.TF_POP_MU), tf.get_variable(constants.TF_POP_VAR),
+                                        None, None, 1e-10)
 
                             if training and use_dropout:
-                                x = tf.nn.dropout(x, keep_prob=1.0 - tf_dropout_rate, name='dropout')
+                                h_list[di] = tf.nn.dropout(h_list[di], keep_prob=1.0 - tf_dropout_rate, name='dropout')
 
-                            h_list[di] = tf.matmul(x, w) + b
+
 
                 elif 'fulcon_out' == op:
                     h_out_list = []
@@ -328,17 +370,6 @@ def inference(dataset, tf_cnn_hyperparameters, training):
     return x
 
 
-def get_weights_mean_for_pruning():
-    weight_mean_ops = {}
-
-    for op in cnn_ops:
-        if 'conv' in op:
-            with tf.variable_scope(op, reuse=True) as scope:
-                w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
-                weight_mean_ops[op] = tf.assign(tf.get_variable(TF_ACTIVAIONS_STR), tf.reduce_mean(w, [0, 1, 2]),
-                              validate_shape=False)
-
-    return weight_mean_ops
 
 
 def tower_loss(dataset, labels, weighted, tf_data_weights, tf_cnn_hyperparameters):
@@ -592,7 +623,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     global tf_valid_data_batch,tf_valid_label_batch
     global pool_pred, augmented_pool_data_batch, augmented_pool_label_batch
     global tf_update_hyp_ops, tf_action_info
-    global tf_weights_this,tf_bias_this, tf_weights_next,tf_wvelocity_this, tf_bvelocity_this, tf_wvelocity_next
+    global tf_weights_this,tf_bias_this, tf_bn_ones_this, tf_bn_zeros_this, tf_weights_next,tf_wvelocity_this, tf_bvelocity_this, tf_wvelocity_next
     global tf_weight_shape,tf_in_size, tf_out_size
     global increment_global_step_op,tf_learning_rate
     global tf_act_this
@@ -696,8 +727,6 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     # Pool data operations
     apply_pool_grads_op, update_pool_velocity_ops = cnn_optimizer.apply_pool_gradient_with_rmsprop(optimizer, start_lr, global_step, tf_pool_grad)
 
-    # Weight mean calculation for pruning
-    tf_weight_mean_ops = get_weights_mean_for_pruning()
 
     increment_global_step_op = tf.assign(global_step, global_step + 1)
 
@@ -729,6 +758,8 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
             tf_bias_this = tf.placeholder(shape=(None,), dtype=tf.float32, name='new_bias_current')
 
             tf_act_this = tf.placeholder(shape=(None,), dtype=tf.float32, name='new_activations_current')
+            tf_bn_ones_this = tf.placeholder(shape=(None,), dtype=tf.float32, name='new_bn_current')
+            tf_bn_zeros_this = tf.placeholder(shape=(None,), dtype=tf.float32, name='new_bn_current')
 
             tf_weights_next = tf.placeholder(shape=[None, None, None, None], dtype=tf.float32,
                                              name='new_weights_next')
@@ -786,7 +817,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
                     tf_add_filters_ops[tmp_op] = ada_cnn_adapter.add_with_action(tmp_op, tf_action_info, tf_weights_this,
                                                                  tf_bias_this, tf_weights_next,
                                                                  tf_wvelocity_this, tf_bvelocity_this,
-                                                                 tf_wvelocity_next,tf_replicative_factor_vec, tf_act_this)
+                                                                 tf_wvelocity_next,tf_replicative_factor_vec, tf_act_this, tf_bn_zeros_this, tf_bn_ones_this)
 
                     tf_rm_filters_ops[tmp_op] = ada_cnn_adapter.remove_with_action(tmp_op, tf_action_info,
                                                                                  tf_cnn_hyperparameters,
@@ -884,7 +915,7 @@ def run_actual_add_operation(session, current_op, li, last_conv_id, hard_pool_ft
     #if epoch==-1:
     #rand_thresh_for_layer = max([min_rand_threshold, max_rand_threshold * (1.0 / (li+1.0)**0.5)])
     #else:
-    rand_thresh_for_layer = 0.0
+    rand_thresh_for_layer = 0.5
 
     print('Rand thresh for layer: ',rand_thresh_for_layer)
     if current_op != last_conv_id:
@@ -896,7 +927,6 @@ def run_actual_add_operation(session, current_op, li, last_conv_id, hard_pool_ft
         with tf.variable_scope(current_op,reuse=True):
             curr_weights = tf.get_variable(TF_WEIGHTS).eval()
             curr_bias = tf.get_variable(TF_BIAS).eval()
-            curr_act = tf.get_variable(TF_ACTIVAIONS_STR).eval()
 
         logger.debug('Current weights shape (%s): %s',current_op,curr_weights.shape)
 
@@ -917,51 +947,33 @@ def run_actual_add_operation(session, current_op, li, last_conv_id, hard_pool_ft
 
             #rand_indices_1 = np.random.choice(np.arange(curr_weights.shape[3]).tolist(),size=amount_to_add,replace=True)
 
-            if np.random.random()<0.5:
-                rand_indices_1 = np.argsort(curr_act).ravel()[-amount_to_add:]
-                rand_indices_2 = np.argsort(curr_act).ravel()[:amount_to_add]
-            else:
-                rand_indices_1 = np.random.choice(np.arange(curr_weights.shape[3]).tolist(), size=amount_to_add,
-                                                  replace=True)
-                rand_indices_2 = np.random.choice(np.arange(curr_weights.shape[3]).tolist(), size=amount_to_add,
-                                                  replace=True)
 
-            #all_indices_plus_rand = np.concatenate([np.arange(0,curr_weights.shape[3]).ravel(), np.asarray(rand_indices_1).ravel()])
-            #ind_counter = Counter(all_indices_plus_rand.tolist())
-            #sorted_keys = sorted(ind_counter.keys())
-            normalize_factor = 1.0*(curr_weight_shape[3] + amount_to_add) / curr_weight_shape[3]
-            #print(normalize_factor)
-            #count_vec = np.asarray([ind_counter[k] for k in sorted_keys ])
-            #count_vec = np.concatenate([count_vec,count_vec[rand_indices_1]])#*normalize_factor
+            rand_indices = np.random.choice(np.arange(curr_weights.shape[3]).tolist(), size=amount_to_add,
+                                              replace=True)
+
             count_vec = np.ones((curr_weight_shape[3] + amount_to_add), dtype=np.float32)  #* normalize_factor
 
             print('count vec',count_vec.shape)
             print(count_vec)
-            new_curr_weights = (curr_weights[:,:,:,rand_indices_1] + curr_weights[:,:,:,rand_indices_2])/2.0
-            #new_curr_weights = get_new_distorted_weights(new_curr_weights,curr_weight_shape)
-            new_act_this = (curr_act[rand_indices_1] + curr_act[rand_indices_2])/2.0
+            new_curr_weights = curr_weights[:,:,:,rand_indices]
+
+            new_act_this = np.zeros(shape=(amount_to_add),dtype=np.float32)
 
             new_curr_bias = np.random.normal(scale=scale_for_rand, size=(amount_to_add))
 
             if last_conv_id != current_op:
-                new_next_weights = (next_weights[:,:,rand_indices_1,:] + next_weights[:,:,rand_indices_2,:])/2.0
+                new_next_weights = next_weights[:,:,rand_indices,:]
                 #new_next_weights = get_new_distorted_weights(new_next_weights,next_weights_shape)
 
                 #new_next_weights = next_weights[:, :, rand_indices, :]
             else:
-                low_bound_1 = (rand_indices_1*final_2d_height*final_2d_width).tolist()
-                upper_bound_1 = ((rand_indices_1+1) * final_2d_height * final_2d_width).tolist()
+                low_bound_1 = (rand_indices*final_2d_height*final_2d_width).tolist()
+                upper_bound_1 = ((rand_indices+1) * final_2d_height * final_2d_width).tolist()
                 low_up_bounds_1 = list(zip(low_bound_1,upper_bound_1))
                 all_indices_1 = [np.arange(l,u) for (l,u) in low_up_bounds_1]
                 all_indices_1 = np.stack(all_indices_1).ravel()
 
-                low_bound_2 = (rand_indices_2 * final_2d_height * final_2d_width).tolist()
-                upper_bound_2 = ((rand_indices_2 + 1) * final_2d_height * final_2d_width).tolist()
-                low_up_bounds_2 = list(zip(low_bound_2, upper_bound_2))
-                all_indices_2 = [np.arange(l, u) for (l, u) in low_up_bounds_2]
-                all_indices_2 = np.stack(all_indices_2).ravel()
-
-                new_next_weights = (next_weights[all_indices_1,:] + next_weights[all_indices_2,:])/2.0
+                new_next_weights = next_weights[all_indices_1,:]
                 new_next_weights = np.expand_dims(np.expand_dims(new_next_weights,-1),-1)
 
         # Random initialization
@@ -1007,7 +1019,9 @@ def run_actual_add_operation(session, current_op, li, last_conv_id, hard_pool_ft
                             amount_to_add, cnn_hyperparameters[next_conv_op]['weights'][3]),dtype=np.float32) if last_conv_id != current_op else
                         np.zeros(shape=(final_2d_height * final_2d_width * amount_to_add,
                                         cnn_hyperparameters[first_fc]['out'], 1, 1),dtype=np.float32),
-                        tf_act_this:new_act_this
+                        tf_act_this:new_act_this,
+                        tf_bn_zeros_this: np.zeros(shape=(amount_to_add),dtype=np.float32),
+                        tf_bn_ones_this: np.ones(shape=(amount_to_add),dtype=np.float32)
                     })
 
     # change both weights and biase in the current op
@@ -1088,8 +1102,8 @@ def run_actual_add_operation(session, current_op, li, last_conv_id, hard_pool_ft
     current_adaptive_dropout = get_adaptive_dropout()
     # This is a pretty important step
     # Unless you run this onces, the sizes of weights do not change
-    train_feed_dict.update({tf_dropout_rate:current_adaptive_dropout})
-    train_feed_dict.update(get_dropout_placeholder_dict())
+    train_feed_dict.update({tf_dropout_rate:dropout_rate})
+    train_feed_dict.update(get_dropout_placeholder_dict(dropout_rate))
     _ = session.run([tf_logits], feed_dict=train_feed_dict)
 
     # Train only with half of the batch
@@ -1193,7 +1207,7 @@ def run_actual_remove_operation(session, current_op, li, last_conv_id, hard_pool
     current_adaptive_dropout = get_adaptive_dropout()
     # This is a pretty important step
     # Unless you run this onces, the sizes of weights do not change
-    train_feed_dict.update(get_dropout_placeholder_dict())
+    train_feed_dict.update(get_dropout_placeholder_dict(dropout_rate))
     _ = session.run(tf_logits, feed_dict=train_feed_dict)
 
     run_actual_finetune_operation(hard_pool_ft)
@@ -1216,8 +1230,8 @@ def run_actual_finetune_operation(hard_pool_ft,overried_finetune_rate=False):
             if np.random.random() < research_parameters['finetune_rate'] or overried_finetune_rate:
                 #print('fintuning network (pool_id: ',pool_id,')')
                 pool_feed_dict = {}
-                pool_feed_dict.update({tf_dropout_rate:current_adaptive_dropout})
-                pool_feed_dict.update(get_dropout_placeholder_dict())
+                pool_feed_dict.update({tf_dropout_rate:dropout_rate})
+                pool_feed_dict.update(get_dropout_placeholder_dict(dropout_rate))
                 pbatch_data = pool_dataset[(pool_id) * batch_size:(pool_id + 1) * batch_size,
                               :, :, :]
                 pbatch_labels = pool_labels[(pool_id) * batch_size:(pool_id + 1) * batch_size,
@@ -1436,6 +1450,12 @@ def calculate_pool_accuracy(hard_pool):
 
     return np.mean(pool_accuracy) if len(pool_accuracy) > 0 else 0
 
+def update_dropout_rate(train_env_idx):
+    global dropout_rate
+    all_dropout_rates = [0.9,0.7,0.9]
+    dropout_rate = all_dropout_rates[train_env_idx]
+
+
 
 if __name__ == '__main__':
 
@@ -1509,7 +1529,7 @@ if __name__ == '__main__':
     # SET FROM MAIN FUNCTIONS OF OTHER CLASSES
 
     set_varialbes_with_input_arguments(adapt_structure,rigid_pooling)
-    cnn_intializer.set_from_main(research_parameters, logging_level, logging_format)
+    cnn_intializer.set_from_main(research_parameters, logging_level, logging_format,model_hyperparameters)
 
     logger.info('Creating CNN hyperparameters and operations in the correct format')
     # Getting hyperparameters
@@ -1525,7 +1545,7 @@ if __name__ == '__main__':
 
     logger.info('Created CNN hyperparameters and operations in the correct format successfully\n')
 
-    ada_cnn_adapter.set_from_main(research_parameters, final_2d_height, final_2d_width,cnn_ops, cnn_hyperparameters, logging_level, logging_format)
+    ada_cnn_adapter.set_from_main(research_parameters, final_2d_height, final_2d_width,cnn_ops, cnn_hyperparameters, logging_level, logging_format,model_hyperparameters)
     cnn_optimizer.set_from_main(research_parameters,model_hyperparameters,logging_level,logging_format,cnn_ops, final_2d_height, final_2d_width)
 
     logger.info('Creating loggers\n')
@@ -1719,7 +1739,7 @@ if __name__ == '__main__':
         adapter = growth_adapter
 
     research_parameters['momentum'] = 0.9
-    research_parameters['pool_momentum'] = 0.1  # 0.9**(epoch+1)
+    research_parameters['pool_momentum'] = 0.9  # 0.9**(epoch+1)
 
     cnn_optimizer.update_hyperparameters(research_parameters)
 
@@ -1736,6 +1756,7 @@ if __name__ == '__main__':
             train_accuracy = []
             train_soft_accuracy = []
 
+            update_dropout_rate(train_env_idx)
             for env_epoch in range(model_hyperparameters['epochs_per_env']):
 
                 # we stop 'num_gpus' items before the ideal number of training batches
@@ -1760,7 +1781,7 @@ if __name__ == '__main__':
 
                     # Feed dicitonary with placeholders for each tower
                     train_feed_dict = {}
-                    train_feed_dict.update({tf_dropout_rate:current_adaptive_dropout})
+                    train_feed_dict.update({tf_dropout_rate:dropout_rate})
 
                     # ========================================================
                     # Creating data batchs for the towers
@@ -1792,7 +1813,7 @@ if __name__ == '__main__':
                     running_binned_data_dist_vector = binned_data_dist_decay * np.asarray(label_count_sorted) + (
                             1.0 - binned_data_dist_decay) * running_binned_data_dist_vector
 
-                    train_feed_dict.update(get_dropout_placeholder_dict())
+                    train_feed_dict.update(get_dropout_placeholder_dict(dropout_rate))
                     train_feed_dict.update({
                         train_data_gen.tf_image_ph: batch_data, train_data_gen.tf_label_ph: tr_labels,
                         tf_data_weights: batch_weights
@@ -1837,15 +1858,21 @@ if __name__ == '__main__':
                             add_data_to_pool = False
                             batch_env_ids = np.array([train_env_idx for _ in range(batch_size)],dtype=np.float32).reshape(-1,1)
 
-                            if np.random.random()<0.05:
+                            if np.random.random()<0.01:
                                 hard_pool_valid.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
-                                                                  super_loss_vec, max(0.0,prev_train_acc - current_train_acc))
+                                                                  super_loss_vec, max(0.0,(prev_train_acc - current_train_acc)/100.0))
+                                add_data_to_pool = True
+                                #print('='*80)
+                                #print(prev_train_acc, ',', current_action)
+                                #print('=' * 80)
+                            elif np.random.random()<0.02:
+                                hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
+                                                                  super_loss_vec, max(0.0, (prev_train_acc - current_train_acc)/100.0))
                                 add_data_to_pool = True
 
-                            elif np.random.random()<0.1:
-                                hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
-                                                                  super_loss_vec, max(0.0, prev_train_acc - current_train_acc))
-                                add_data_to_pool = True
+                                #print('=' * 80)
+                                #print(prev_train_acc, ',', current_action)
+                                #print('=' * 80)
 
                             logger.debug('Pooling data summary')
                             logger.debug('\tData batch size %d', single_iteration_batch_data.shape[0])
@@ -1870,7 +1897,7 @@ if __name__ == '__main__':
 
                     if current_action is None or 'do_nothing' not in adapter.get_action_string(current_action):
                         if not add_data_to_pool:
-                            feed_dict = get_dropout_placeholder_dict()
+                            feed_dict = get_dropout_placeholder_dict(dropout_rate)
                             feed_dict.update(train_feed_dict)
                             for _ in range(iterations_per_batch):
                                 #print('training on current batch (action type: ', current_action_type, ')')
@@ -1900,13 +1927,19 @@ if __name__ == '__main__':
                     for val in hard_pool_valid.get_class_distribution():
                         pool_dist_string += str(val) + ','
 
-                    pool_dist_logger.info('%s%d,%s', pool_dist_string, hard_pool_valid.get_size(),hard_pool_valid.get_env_sample_count_string())
+                    pool_dist_logger.info(
+                        '%d,%d,%d,%s%d,%s', epoch,train_env_idx,env_epoch,pool_dist_string,
+                        hard_pool_valid.get_size(),hard_pool_valid.get_env_sample_count_string()
+                    )
 
                     pool_dist_string = ''
                     for val in hard_pool_ft.get_class_distribution():
                         pool_dist_string += str(val) + ','
 
-                    pool_dist_ft_logger.info('%s%d,%s', pool_dist_string, hard_pool_ft.get_size(),hard_pool_ft.get_env_sample_count_string())
+                    pool_dist_ft_logger.info(
+                        '%d,%d,%d,%s%d,%s', epoch,train_env_idx,env_epoch,pool_dist_string,
+                        hard_pool_ft.get_size(),hard_pool_ft.get_env_sample_count_string()
+                    )
                 # ==============================================================
 
 

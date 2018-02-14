@@ -75,7 +75,9 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     model_hyperparameters['dropout_rate'] = 0.5
     model_hyperparameters['in_dropout_rate'] = 0.0
 
-    model_hyperparameters['use_dropout'] = True
+    model_hyperparameters['use_batchnorm'] = True
+    model_hyperparameters['bn_decay'] = 0.99
+    model_hyperparameters['use_dropout'] = False
     model_hyperparameters['check_early_stopping_from'] = 5
     model_hyperparameters['accuracy_drop_cap'] = 3
     model_hyperparameters['iterations_per_batch'] = 1
@@ -95,7 +97,7 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
 
     model_hyperparameters['top_k_accuracy'] = 1.0
 
-    pool_size = model_hyperparameters['batch_size'] * 10* num_labels
+    pool_size = model_hyperparameters['batch_size'] * 20 * num_labels
 
     if not adapt_structure:
 

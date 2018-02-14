@@ -11,6 +11,7 @@ TF_TRAIN_MOMENTUM = constants.TF_TRAIN_MOMENTUM
 TF_POOL_MOMENTUM = constants.TF_POOL_MOMENTUM
 
 research_parameters = None
+model_hyperparameters = None
 
 TF_FC_WEIGHT_IN_STR = constants.TF_FC_WEIGHT_IN_STR
 TF_FC_WEIGHT_OUT_STR = constants.TF_FC_WEIGHT_OUT_STR
@@ -19,10 +20,11 @@ final_2d_width, final_2d_height = None, None
 cnn_hyperparameters, cnn_ops = None, None
 logger = None
 
-def set_from_main(research_params, final_2d_h, final_2d_w,ops,hyps, logging_level, logging_format):
-    global research_parameters,final_2d_width, final_2d_height, logger
+def set_from_main(research_params, final_2d_h, final_2d_w,ops,hyps, logging_level, logging_format, model_hyperparams):
+    global research_parameters,final_2d_width, final_2d_height, logger, model_hyperparameters
     global cnn_hyperparameters, cnn_ops
     research_parameters = research_params
+    model_hyperparameters = model_hyperparams
     final_2d_width = final_2d_w
     final_2d_height = final_2d_h
     cnn_hyperparameters = hyps
@@ -40,7 +42,7 @@ def add_with_action(
         op, tf_action_info, tf_weights_this, tf_bias_this,
         tf_weights_next, tf_wvelocity_this,
         tf_bvelocity_this, tf_wvelocity_next, tf_replicative_factor_vec,
-        tf_act_this
+        tf_act_this, tf_bn_zeros_this, tf_bn_ones_this
 ):
     global cnn_hyperparameters, cnn_ops
     global logger
@@ -62,7 +64,6 @@ def add_with_action(
     # updating velocity vectors
     with tf.variable_scope(op,reuse=True) as scope:
         w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
-        act = tf.get_variable(constants.TF_ACTIVAIONS_STR)
 
         with tf.variable_scope(TF_WEIGHTS,reuse=True) as child_scope:
             w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
@@ -76,7 +77,6 @@ def add_with_action(
         tf_reshaped_replicative_factor_vec = tf.reshape(tf_replicative_factor_vec, [1, 1, 1, -1])
         tf_new_weights = tf.div(tf.concat(axis=3, values=[w, tf_weights_this]),tf_reshaped_replicative_factor_vec)
         tf_new_biases = tf.div(tf.concat(axis=0, values=[b, tf_bias_this]),tf_replicative_factor_vec)
-        tf_new_act = tf.concat(axis=0, values=[act,tf_act_this])
 
         if research_parameters['optimizer'] == 'Momentum':
             new_weight_vel = tf.concat(axis=3, values=[w_vel, tf_wvelocity_this])
@@ -89,9 +89,26 @@ def add_with_action(
             update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
             update_ops.append(tf.assign(pool_b_vel, new_pool_b_vel, validate_shape=False))
 
+        if model_hyperparameters['use_batchnorm']:
+            bn_pop_mu = tf.get_variable(constants.TF_POP_MU)
+            bn_pop_var = tf.get_variable(constants.TF_POP_VAR)
+            bn_beta = tf.get_variable(constants.TF_BETA)
+            bn_gamma = tf.get_variable(constants.TF_GAMMA)
+
+            new_bn_pop_mu = tf.concat(axis=3, values=[bn_pop_mu,tf.reshape(tf_bn_zeros_this,[1,1,1,-1])])
+            new_bn_pop_var = tf.concat(axis=3, values=[bn_pop_var,tf.reshape(tf_bn_ones_this,[1,1,1,-1])])
+            new_bn_beta = tf.concat(axis=3, values=[bn_beta, tf.reshape(tf_bn_zeros_this,[1,1,1,-1])])
+            new_bn_gamma = tf.concat(axis=3, values=[bn_gamma, tf.reshape(tf_bn_ones_this,[1,1,1,-1])])
+
+            update_ops.append(tf.assign(bn_pop_mu, new_bn_pop_mu, validate_shape=False))
+            update_ops.append(tf.assign(bn_pop_var, new_bn_pop_var, validate_shape=False))
+            update_ops.append(tf.assign(bn_beta, new_bn_beta, validate_shape=False))
+            update_ops.append(tf.assign(bn_gamma, new_bn_gamma, validate_shape=False))
+
+
         update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
         update_ops.append(tf.assign(b, tf_new_biases, validate_shape=False))
-        update_ops.append(tf.assign(act, tf_new_act, validate_shape=False))
+
 
     # ================ Changes to next_op ===============
     # Very last convolutional layer
@@ -204,7 +221,6 @@ def add_to_fulcon_with_action(
             tf_reshaped_replicative_factor_vec)
 
         tf_new_biases = tf.div(tf.concat(axis=0, values=[b, tf_fulcon_bias_this]),tf_replicative_factor_vec)
-        tf_new_act = tf.concat(axis=0, values=[act,tf_act_this])
 
         if research_parameters['optimizer'] == 'Momentum':
 
@@ -220,7 +236,6 @@ def add_to_fulcon_with_action(
 
         update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
         update_ops.append(tf.assign(b, tf_new_biases, validate_shape=False))
-        update_ops.append(tf.assign(act, tf_new_act, validate_shape=False))
 
     # ================ Changes to next_op ===============
     # change FC layer
@@ -281,7 +296,7 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
         # need to do a transoformation to do this.
         # change both weights and biase in the current op
         w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
-        act = tf.get_variable(constants.TF_ACTIVAIONS_STR)
+
 
         with tf.variable_scope(TF_WEIGHTS, reuse=True):
             w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
@@ -304,8 +319,6 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
 
         update_ops.append(tf.assign(b, tf_new_biases*tf_weight_bump_factor, validate_shape=False))
 
-        tf_new_acts = tf.reshape(tf.gather(act, tf_indices_to_keep),[-1])
-        update_ops.append(tf.assign(act, tf_new_acts, validate_shape=False))
 
         if research_parameters['optimizer'] == 'Momentum':
             new_weight_vel = tf.transpose(w_vel, [3, 0, 1, 2])
@@ -323,6 +336,33 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
             update_ops.append(tf.assign(pool_w_vel, new_pool_w_vel, validate_shape=False))
             update_ops.append(tf.assign(b_vel, new_bias_vel, validate_shape=False))
             update_ops.append(tf.assign(pool_b_vel, new_pool_b_vel, validate_shape=False))
+
+        if model_hyperparameters['use_batchnorm']:
+            bn_pop_mu = tf.get_variable(constants.TF_POP_MU)
+            bn_pop_var = tf.get_variable(constants.TF_POP_VAR)
+            bn_beta = tf.get_variable(constants.TF_BETA)
+            bn_gamma = tf.get_variable(constants.TF_GAMMA)
+
+            new_bn_pop_mu = tf.transpose(bn_pop_mu,[3,0,1,2])
+            new_bn_pop_mu = tf.gather_nd(new_bn_pop_mu, tf_indices_to_keep)
+            new_bn_pop_mu = tf.transpose(new_bn_pop_mu, [1,2,3,0])
+
+            new_bn_pop_var = tf.transpose(bn_pop_var, [3, 0, 1, 2])
+            new_bn_pop_var = tf.gather_nd(new_bn_pop_var, tf_indices_to_keep)
+            new_bn_pop_var = tf.transpose(new_bn_pop_var, [1, 2, 3, 0])
+
+            new_bn_beta = tf.transpose(bn_beta, [3, 0, 1, 2])
+            new_bn_beta = tf.gather_nd(new_bn_beta, tf_indices_to_keep)
+            new_bn_beta = tf.transpose(new_bn_beta, [1, 2, 3, 0])
+
+            new_bn_gamma = tf.transpose(bn_gamma, [3, 0, 1, 2])
+            new_bn_gamma = tf.gather_nd(new_bn_gamma, tf_indices_to_keep)
+            new_bn_gamma = tf.transpose(new_bn_gamma, [1, 2, 3, 0])
+
+            update_ops.append(tf.assign(bn_pop_mu, new_bn_pop_mu, validate_shape=False))
+            update_ops.append(tf.assign(bn_pop_var, new_bn_pop_var, validate_shape=False))
+            update_ops.append(tf.assign(bn_beta, new_bn_beta, validate_shape=False))
+            update_ops.append(tf.assign(bn_gamma, new_bn_gamma, validate_shape=False))
 
     # Processing the 1st fully connected layer
     if op == last_conv_id:
@@ -346,7 +386,6 @@ def remove_with_action(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
                     tf_new_weights = tf.gather_nd(w, tf_fulcon_indices_to_keep)
 
                     update_ops.append(tf.assign(w, tf_new_weights, validate_shape=False))
-
 
                     if research_parameters['optimizer'] == 'Momentum':
 
@@ -441,9 +480,6 @@ def remove_from_fulcon(op, tf_action_info, tf_cnn_hyperparameters, tf_indices_to
 
 
         update_ops.append(tf.assign(b, tf_new_biases*tf_weight_bump_factor, validate_shape=False))
-
-        tf_new_acts = tf.reshape(tf.gather(act, tf_indices_to_keep),[-1])
-        update_ops.append(tf.assign(act,tf_new_acts, validate_shape=False))
 
         new_weight_vel = tf.transpose(w_vel)
         new_weight_vel = tf.gather_nd(new_weight_vel, tf.reshape(tf_indices_to_keep,[-1,1]))

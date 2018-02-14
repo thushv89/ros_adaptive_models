@@ -19,7 +19,7 @@ class Pool(object):
         self.position = 0
         self.dataset = np.empty((self.size,self.image_size[0],self.image_size[1],params['num_channels']),dtype=np.float32)
         self.labels = np.empty((self.size,params['num_labels']),dtype=np.float32)
-        self.env_ids = np.empty((self.size,1))
+        self.env_ids = np.empty((self.size,1),dtype=np.float32)
         self.batch_size = params['batch_size']
         self.filled_size = 0
 
@@ -77,7 +77,7 @@ class Pool(object):
         if self.position + add_size <= self.size - 1:
             self.dataset[self.position:self.position+add_size,:,:,:] = data[hard_indices,:,:,:]
             self.labels[self.position:self.position+add_size,:] = labels[hard_indices,:]
-            self.env_ids[self.position:self.position+add_size,0] = env_ids[hard_indices,0]
+            self.env_ids[self.position:self.position+add_size,:] = env_ids[hard_indices,:]
         else:
             overflow = (self.position + add_size) % (self.size-1)
             end_chunk_size = self.size - (self.position + 1)
@@ -125,7 +125,7 @@ class Pool(object):
         return dist_vector
 
     def get_env_sample_count_string(self):
-        class_count = Counter(self.labels[:self.filled_size, :].flatten())
+        class_count = Counter(self.env_ids[:self.filled_size, :].flatten())
         count_str = ''
         for ei in range(self.num_env):
             val = class_count[ei] if ei in class_count else 0.0

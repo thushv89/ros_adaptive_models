@@ -18,12 +18,15 @@ TF_SCOPE_DIVIDER = constants.TF_SCOPE_DIVIDER
 
 
 research_parameters = None
+model_hyperparameters = None
+
 init_logger = None
 
-def set_from_main(research_params,logging_level, logging_format):
-    global research_parameters,init_logger
+def set_from_main(research_params,logging_level, logging_format,model_params):
+    global research_parameters,init_logger,model_hyperparameters
 
     research_parameters = research_params
+    model_hyperparameters = model_params
     init_logger = logging.getLogger('cnn_initializer_logger')
     init_logger.propagate = False
     init_logger.setLevel(logging_level)
@@ -58,11 +61,33 @@ def initialize_cnn_with_ops(cnn_ops, cnn_hyps):
                     initializer=tf.random_uniform(shape=[cnn_hyps[op]['weights'][3]],minval=-0.01, maxval=0.01),
                     validate_shape=False, dtype=tf.float32)
 
-                tf.get_variable(
-                    name=TF_ACTIVAIONS_STR,
-                    initializer=tf.zeros(shape=[cnn_hyps[op]['weights'][3]],
-                                         dtype=tf.float32, name=scope.name + '_activations'),
-                    validate_shape=False, trainable=False)
+                if model_hyperparameters['use_batchnorm']:
+
+                    tf.get_variable(
+                        name=constants.TF_POP_MU,
+                        initializer=tf.zeros(shape=[1,1,1,cnn_hyps[op]['weights'][3]],
+                                             dtype=tf.float32),
+                        validate_shape=False, trainable=False)
+
+                    tf.get_variable(
+                        name=constants.TF_POP_VAR,
+                        initializer=tf.ones(shape=[1,1,1,cnn_hyps[op]['weights'][3]],
+                                             dtype=tf.float32),
+                        validate_shape=False, trainable=False)
+
+
+                    tf.get_variable(
+                        name=constants.TF_GAMMA,
+                        initializer=tf.ones(shape=[1,1,1,cnn_hyps[op]['weights'][3]],
+                                            dtype=tf.float32),
+                        validate_shape=False, trainable=True)
+
+                    tf.get_variable(
+                        name=constants.TF_BETA,
+                        initializer=tf.zeros(shape=[1,1,1,cnn_hyps[op]['weights'][3]],
+                                            dtype=tf.float32),
+                        validate_shape=False, trainable=True)
+
 
                 init_logger.debug('Weights for %s initialized with size %s', op, str(cnn_hyps[op]['weights']))
                 init_logger.debug('Biases for %s initialized with size %d', op, cnn_hyps[op]['weights'][3])
@@ -80,6 +105,28 @@ def initialize_cnn_with_ops(cnn_ops, cnn_hyps):
                             name=TF_BIAS,
                             initializer=tf.random_uniform(shape=[cnn_hyps[op]['out']], minval=-0.01, maxval=0.01),
                             validate_shape=False, dtype=tf.float32)
+
+                        if model_hyperparameters['use_batchnorm']:
+                            tf.get_variable(
+                                name=constants.TF_POP_MU,
+                                initializer=tf.zeros(shape=[1,cnn_hyps[op]['out']]),
+                                validate_shape=False, dtype=tf.float32, trainable=False)
+
+                            tf.get_variable(
+                                name=constants.TF_POP_VAR,
+                                initializer=tf.ones(shape=[1,cnn_hyps[op]['out']]),
+                                validate_shape=False, dtype=tf.float32, trainable=False)
+
+                            tf.get_variable(
+                                name=constants.TF_BETA,
+                                initializer=tf.zeros(shape=[1,cnn_hyps[op]['out']]),
+                                validate_shape=False, dtype=tf.float32)
+
+                            tf.get_variable(
+                                name=constants.TF_GAMMA,
+                                initializer=tf.ones(shape=[1,cnn_hyps[op]['out']]),
+                                validate_shape=False, dtype=tf.float32)
+
 
                         init_logger.debug('Weights for %s initialized with size %d,%d',
                                      op, cnn_hyps[op]['in'], cnn_hyps[op]['out'])
@@ -230,10 +277,8 @@ def reset_cnn_preserve_weights_only_old(cnn_hyps, cnn_ops, tf_prune_factor):
                     reset_ops.append(tf.assign(b_vel, gathered_b_vel, validate_shape=False))
                     reset_ops.append(tf.assign(pool_b_vel, gathered_pool_b_vel, validate_shape=False))
 
-                act_var = tf.get_variable(name=TF_ACTIVAIONS_STR)
-                new_act_var = tf.zeros(shape=[cnn_hyps[op]['weights'][3]],
-                                       dtype=tf.float32)
-                reset_ops.append(tf.assign(act_var, new_act_var, validate_shape=False))
+
+
 
         if 'fulcon' in op:
 
@@ -356,10 +401,7 @@ def reset_cnn_preserve_weights_average(cnn_hyps, cnn_ops, tf_prune_factor, cnn_o
                     reset_ops.append(tf.assign(b_vel, gathered_b_vel, validate_shape=False))
                     reset_ops.append(tf.assign(pool_b_vel, gathered_pool_b_vel, validate_shape=False))
 
-                act_var = tf.get_variable(name=TF_ACTIVAIONS_STR)
-                new_act_var = tf.zeros(shape=[cnn_hyps[op]['weights'][3]],
-                                       dtype=tf.float32)
-                reset_ops.append(tf.assign(act_var, new_act_var, validate_shape=False))
+
 
         if 'fulcon' in op:
 
@@ -440,9 +482,6 @@ def reset_cnn_preserve_weights_custom(cnn_hyps, cnn_ops, tf_prune_ids, tf_prune_
                 gathered_weights = tf.gather(tr_weights,tf_prune_ids[op]['out'])
                 gathered_weights = tf.transpose(gathered_weights,[1,2,3,0])
 
-                #Activation vector prune
-                act = tf.get_variable(name=constants.TF_ACTIVAIONS_STR)
-                gathered_act = tf.gather(act,tf_prune_ids[op]['out'])
 
                 # in channel pruning
                 gathered_weights = tf.transpose(gathered_weights,[2,0,1,3])
@@ -450,7 +489,7 @@ def reset_cnn_preserve_weights_custom(cnn_hyps, cnn_ops, tf_prune_ids, tf_prune_
                 gathered_weights = tf.transpose(gathered_weights, [1, 2, 0, 3])#/tf_prune_factor
 
                 reset_ops.append(tf.assign(weights, gathered_weights, validate_shape=False))
-                reset_ops.append(tf.assign(act, gathered_act, validate_shape=False))
+
 
                 with tf.variable_scope(TF_WEIGHTS):
                     w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
@@ -511,15 +550,12 @@ def reset_cnn_preserve_weights_custom(cnn_hyps, cnn_ops, tf_prune_ids, tf_prune_
                 gathered_weights = tf.gather(tr_weights, tf_prune_ids[op]['out'])
                 gathered_weights = tf.transpose(gathered_weights)
 
-                # Activation vector prune
-                act = tf.get_variable(name=constants.TF_ACTIVAIONS_STR)
-                gathered_act = tf.gather(act, tf_prune_ids[op]['out'])
 
                 # In pruning
                 gathered_weights = tf.gather(gathered_weights, tf_prune_ids[op]['in'])#/tf_prune_factor
 
                 reset_ops.append(tf.assign(weights, gathered_weights, validate_shape=False))
-                reset_ops.append(tf.assign(act, gathered_act, validate_shape=False))
+
 
                 with tf.variable_scope(TF_WEIGHTS):
                     w_vel = tf.get_variable(TF_TRAIN_MOMENTUM)
@@ -611,10 +647,7 @@ def reset_cnn(cnn_hyps,cnn_ops):
                     reset_ops.append(tf.assign(b_vel, new_b_vel, validate_shape=False))
                     reset_ops.append(tf.assign(pool_b_vel, new_b_vel, validate_shape=False))
 
-                act_var = tf.get_variable(name=TF_ACTIVAIONS_STR)
-                new_act_var = tf.zeros(shape=[cnn_hyps[op]['weights'][3]],
-                                       dtype=tf.float32)
-                reset_ops.append(tf.assign(act_var, new_act_var, validate_shape=False))
+
 
         if 'fulcon' in op:
             with tf.variable_scope(op) as scope:
