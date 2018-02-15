@@ -1912,14 +1912,14 @@ if __name__ == '__main__':
 
                             if np.random.random()<0.01:
                                 hard_pool_valid.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
-                                                                  super_loss_vec, max(0.0,(prev_train_acc - current_train_acc)/100.0))
+                                                                  super_loss_vec, max(0.0,(prev_train_acc - current_train_acc)/100.0),randomize=True)
                                 add_data_to_pool = True
                                 #print('='*80)
                                 #print(prev_train_acc, ',', current_action)
                                 #print('=' * 80)
                             elif np.random.random()<0.02:
                                 hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
-                                                                  super_loss_vec, max(0.0, (prev_train_acc - current_train_acc)/100.0))
+                                                                  super_loss_vec, max(0.0, (prev_train_acc - current_train_acc)/100.0),randomize=True)
                                 add_data_to_pool = True
 
                                 #print('=' * 80)
@@ -1945,7 +1945,7 @@ if __name__ == '__main__':
                                                      dtype=np.float32).reshape(-1, 1)
                             #print('add examples to rigid pooling naive')
                             hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
-                                                              super_loss_vec,1.0)
+                                                              super_loss_vec,1.0,True)
                             logger.debug('\tPool size (FT): %d', hard_pool_ft.get_size())
 
                         # =========================================================

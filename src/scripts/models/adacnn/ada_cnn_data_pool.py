@@ -59,7 +59,7 @@ class Pool(object):
 
         self.position = (self.position+add_size)%self.size
 
-    def add_hard_examples(self,data,labels,env_ids,loss,fraction):
+    def add_hard_examples(self,data,labels,env_ids,loss,fraction,randomize):
         '''
         This method will add only the hard examples to the pool
         Hard examples are the ones that were not correctly classified
@@ -70,7 +70,11 @@ class Pool(object):
         :return: None
         '''
 
-        hard_indices = np.argsort(loss).flatten()[::-1][:int(fraction * self.batch_size)]
+        if not randomize:
+            hard_indices = np.argsort(loss).flatten()[::-1][:int(fraction * self.batch_size)]
+        else:
+            hard_indices = np.random.choice(np.arange(self.batch_size),size=int(fraction*self.batch_size))
+
         add_size = hard_indices.size
 
         # if position has more space for all the hard_examples
