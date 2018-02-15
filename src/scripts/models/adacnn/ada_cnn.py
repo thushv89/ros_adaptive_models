@@ -385,7 +385,7 @@ def inference(dataset, tf_cnn_hyperparameters, training,use_best_model):
                             if training:
                                 w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
                             else:
-                                if save_best_model:
+                                if save_best_model and use_best_model:
                                     with tf.variable_scope('best', reuse=True):
                                         w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
                                 else:
@@ -1762,7 +1762,7 @@ if __name__ == '__main__':
     # Reward for Q-Learner
     prev_pool_accuracy = 0
     max_pool_accuracy = 0
-    pool_weighted_accuracies = [0.0]
+    max_weighted_pool_accuracy = 0.0
     pool_acc_no_improvement_count = 0
     stop_training = False
 
@@ -2157,14 +2157,13 @@ if __name__ == '__main__':
 
                             w_p_accuracy = (hard_pool_valid.get_size()*1.0/pool_size)*p_accuracy
                             logger.info('Weighted pool accuracy: %.3f',w_p_accuracy)
-                            logger.info('(Max) Weighted pool accuracy: %.3f', max(pool_weighted_accuracies))
+                            logger.info('(Max) Weighted pool accuracy: %.3f', max_weighted_pool_accuracy)
 
-                            if w_p_accuracy > pool_weighted_accuracies[-1]:
+                            if w_p_accuracy > max_weighted_pool_accuracy:
                                 session.run(tf_copy_best_weights)
+                                max_weighted_pool_accuracy = w_p_accuracy
                             else:
                                 pool_acc_no_improvement_count += 1
-
-                            pool_weighted_accuracies.append(w_p_accuracy)
 
                             pool_acc_queue.append(p_accuracy)
                             if len(pool_acc_queue) > 20:

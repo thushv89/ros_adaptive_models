@@ -93,12 +93,12 @@ def initialize_cnn_with_ops(cnn_ops, cnn_hyps):
                         tf.get_variable(
                             name=TF_WEIGHTS, shape=cnn_hyps[op]['weights'],
                             initializer=tf.contrib.layers.xavier_initializer_conv2d(),
-                            validate_shape=False, dtype=tf.float32)
+                            validate_shape=False, dtype=tf.float32, trainable=False)
                         tf.get_variable(
                             name=TF_BIAS,
                             initializer=tf.random_uniform(shape=[cnn_hyps[op]['weights'][3]], minval=-0.01,
                                                           maxval=0.01),
-                            validate_shape=False, dtype=tf.float32)
+                            validate_shape=False, dtype=tf.float32, trainable=False)
 
                 init_logger.debug('Weights for %s initialized with size %s', op, str(cnn_hyps[op]['weights']))
                 init_logger.debug('Biases for %s initialized with size %d', op, cnn_hyps[op]['weights'][3])
@@ -143,12 +143,12 @@ def initialize_cnn_with_ops(cnn_ops, cnn_hyps):
                                 tf.get_variable(
                                     name=TF_WEIGHTS, shape=[cnn_hyps[op]['in'], cnn_hyps[op]['out']],
                                     initializer=tf.contrib.layers.xavier_initializer(),
-                                    validate_shape=False, dtype=tf.float32)
+                                    validate_shape=False, dtype=tf.float32, trainable=False)
                                 tf.get_variable(
                                     name=TF_BIAS,
                                     initializer=tf.random_uniform(shape=[cnn_hyps[op]['out']], minval=-0.01,
                                                                   maxval=0.01),
-                                    validate_shape=False, dtype=tf.float32)
+                                    validate_shape=False, dtype=tf.float32, trainable=False)
 
                         init_logger.debug('Weights for %s initialized with size %d,%d',
                                      op, cnn_hyps[op]['in'], cnn_hyps[op]['out'])
