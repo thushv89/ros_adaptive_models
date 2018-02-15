@@ -75,14 +75,20 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     model_hyperparameters['dropout_rate'] = 0.5
     model_hyperparameters['in_dropout_rate'] = 0.0
 
-    model_hyperparameters['use_batchnorm'] = True
+    model_hyperparameters['save_best_model'] = True
+    model_hyperparameters['no_best_improvement'] = 250
+
+    model_hyperparameters['use_batchnorm'] = False
     model_hyperparameters['bn_decay'] = 0.99
     model_hyperparameters['use_dropout'] = False
     model_hyperparameters['check_early_stopping_from'] = 5
     model_hyperparameters['accuracy_drop_cap'] = 3
-    model_hyperparameters['iterations_per_batch'] = 1
+    if not adapt_structure and not use_pooling:
+        model_hyperparameters['iterations_per_batch'] = 2
+    else:
+        model_hyperparameters['iterations_per_batch'] = 1
 
-    model_hyperparameters['epochs'] = 5
+    model_hyperparameters['epochs'] = 5 if adapt_structure else 3
     model_hyperparameters['epochs_per_env']=100
     model_hyperparameters['num_env'] = 3
     model_hyperparameters['start_eps'] = 0.5
@@ -92,8 +98,8 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     if not (adapt_structure and use_pooling):
         model_hyperparameters['iterations_per_batch'] = 2
 
-    model_hyperparameters['include_l2_loss'] = False
-    model_hyperparameters['beta'] = 0.0005
+    model_hyperparameters['include_l2_loss'] = False if adapt_structure else True
+    model_hyperparameters['beta'] = 0.0005 # was 0.0005
 
     model_hyperparameters['top_k_accuracy'] = 1.0
 

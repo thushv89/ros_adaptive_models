@@ -1121,10 +1121,10 @@ class AdaCNNAdaptingQLearner(object):
         # If accuracy is pushed up  or accuracy drop is small return top_k/num_classes
         # If accuracy drop is very large return that drop
 
-        if 'do_nothing' not in curr_action_string or 'finetune' not in curr_action_string:
-            mean_accuracy = (data['pool_accuracy']/100.0) - (self.max_pool_accuracy/100.0)
-        else:
-            mean_accuracy = (data['pool_accuracy']/100.0) - (data['prev_pool_accuracy']/100.0)
+        #if 'do_nothing' not in curr_action_string or 'finetune' not in curr_action_string:
+            #mean_accuracy = (data['pool_accuracy']/100.0) - (self.max_pool_accuracy/100.0)
+        #else:
+        mean_accuracy = (data['pool_accuracy']/100.0) - (data['best_pool_accuracy']/100.0)
 
         #immediate_mean_accuracy = (1.0 + ((data['unseen_valid_accuracy'] + data['prev_unseen_valid_accuracy'])/200.0))*\
         #                          (data['unseen_valid_accuracy'] - data['prev_unseen_valid_accuracy']) / 100.0

@@ -55,6 +55,7 @@ pool_size = None
 use_batchnorm = None
 bn_decay = None
 
+save_best_model, no_best_improvement = None, None
 # Constant Strings
 TF_WEIGHTS = constants.TF_WEIGHTS
 TF_BIAS = constants.TF_BIAS
@@ -86,6 +87,7 @@ def set_varialbes_with_input_arguments(adapt_structure, use_rigid_pooling):
     global pool_size
     global start_eps,eps_decay,valid_acc_decay
     global n_tasks, prune_min_bound, prune_max_bound
+    global  save_best_model, no_best_improvement
 
     # Data specific parameters
     dataset_info = cnn_hyperparameters_getter.get_data_specific_hyperparameters()
@@ -144,6 +146,8 @@ def set_varialbes_with_input_arguments(adapt_structure, use_rigid_pooling):
     # Tasks
     n_tasks = model_hyperparameters['n_tasks']
 
+    save_best_model = model_hyperparameters['save_best_model']
+    no_best_improvement = model_hyperparameters['no_best_improvement']
 
 cnn_ops, cnn_hyperparameters = None, None
 
@@ -172,7 +176,7 @@ tf_valid_data_batch, tf_valid_label_batch = None, None
 
 # Data (Pool) related
 tf_pool_data_batch, tf_pool_label_batch = [], []
-pool_pred, augmented_pool_data_batch, augmented_pool_label_batch = None, [],[]
+pool_pred, pool_pred_best, augmented_pool_data_batch, augmented_pool_label_batch = None, None, [],[]
 
 # Logit related
 tf_grads, tf_loss_vec, tf_loss, tf_pred = None, None, None, None
@@ -200,6 +204,8 @@ tf_weight_shape,tf_in_size, tf_out_size = None, None, None
 increment_global_step_op = None
 tf_weight_mean_ops = None
 tf_retain_id_placeholders = {}
+
+tf_copy_best_weights = None
 
 tf_act_this = None
 
@@ -239,7 +245,7 @@ def get_dropout_placeholder_dict(dropout_rate):
     return placeholder_feed_dict
 
 
-def inference(dataset, tf_cnn_hyperparameters, training):
+def inference(dataset, tf_cnn_hyperparameters, training,use_best_model):
     global logger,cnn_ops, act_decay
 
     first_fc = 'fulcon_out' if 'fulcon_0' not in cnn_ops else 'fulcon_0'
@@ -267,30 +273,37 @@ def inference(dataset, tf_cnn_hyperparameters, training):
                 logger.info('\tConvolving (%s) With Weights:%s Stride:%s' % (
                     op, cnn_hyperparameters[op]['weights'], cnn_hyperparameters[op]['stride']))
                 logger.debug('\t\tWeights: %s', tf.shape(tf.get_variable(TF_WEIGHTS)).eval())
-                w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                if training:
+                    w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                else:
+                    if save_best_model and use_best_model:
+                        with tf.variable_scope('best',reuse=True):
+                            w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                    else:
+                        w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
 
                 x = tf.nn.conv2d(x, w, cnn_hyperparameters[op]['stride'],
                                  padding=cnn_hyperparameters[op]['padding'])
 
                 x = utils.lrelu(x + b, name=scope.name + '/top')
 
-                if training:
-                    if use_batchnorm:
+                if use_batchnorm:
+                    if training:
                         batch_mu,batch_var = tf.nn.moments(x,axes=[0,1,2],keep_dims=True)
 
                         update_batch_mean = tf.assign(tf.get_variable(constants.TF_POP_MU),
-                                                      tf.get_variable(constants.TF_POP_MU) * bn_decay + batch_mu * (1 - bn_decay))
+                                                      tf.get_variable(constants.TF_POP_MU) * bn_decay + batch_mu * (1.0 - bn_decay))
                         update_batch_var = tf.assign(tf.get_variable(constants.TF_POP_VAR),
-                                                     tf.get_variable(constants.TF_POP_VAR) * bn_decay + batch_var * (1 - bn_decay))
+                                                     tf.get_variable(constants.TF_POP_VAR) * bn_decay + batch_var * (1.0 - bn_decay))
 
                         with tf.control_dependencies([update_batch_mean, update_batch_var]):
                             x = tf.nn.batch_normalization(x,batch_mu,batch_var,tf.get_variable(constants.TF_BETA),tf.get_variable(constants.TF_GAMMA),1e-10)
                     else:
 
-                        x = tf.nn.batch_normalization(x, tf.get_variable(constants.TF_POP_MU),
-                                                      tf.get_variable(constants.TF_POP_VAR),
-                                                      None,
-                                                      None, 1e-10)
+                        x = tf.nn.batch_normalization(
+                            x, tf.get_variable(constants.TF_POP_MU), tf.get_variable(constants.TF_POP_VAR),
+                            None, None, 1e-10)
+
                 if training and use_dropout:
                     x = x * tf.reshape(conv_dropout_placeholder_dict[op], [1, 1, 1, -1])
 
@@ -320,16 +333,25 @@ def inference(dataset, tf_cnn_hyperparameters, training):
                     # Transpose x (b,h,w,d) to (b,d,w,h)
                     # This help us to do adaptations more easily
                     x = tf.transpose(x, [0, 3, 1, 2])
-                    x = tf.reshape(x, [batch_size, tf_cnn_hyperparameters[op][TF_FC_WEIGHT_IN_STR]])
+                    #x = tf.reshape(x, [batch_size, tf_cnn_hyperparameters[op][TF_FC_WEIGHT_IN_STR]])
+                    x = tf.reshape(x, [batch_size, -1])
 
                     h_list = {}
                     for di in ['left','straight','right']:
                         with tf.variable_scope(di,reuse=True):
-                            w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                            if training:
+                                w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                            else:
+                                if save_best_model and use_best_model:
+                                    with tf.variable_scope('best', reuse=True):
+                                        w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                                else:
+                                    w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+
                             h_list[di] = utils.lrelu(tf.matmul(x, w) + b, name=scope.name + '/top')
 
-                            if training:
-                                if use_batchnorm:
+                            if use_batchnorm:
+                                if training:
                                     batch_mu, batch_var = tf.nn.moments(h_list[di], axes=[0], keep_dims=True)
 
                                     update_batch_mean = tf.assign(tf.get_variable(constants.TF_POP_MU),
@@ -359,7 +381,16 @@ def inference(dataset, tf_cnn_hyperparameters, training):
                     h_out_list = []
                     for di in ['left', 'straight', 'right']:
                         with tf.variable_scope(di, reuse=True):
-                            w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+
+                            if training:
+                                w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                            else:
+                                if save_best_model:
+                                    with tf.variable_scope('best', reuse=True):
+                                        w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+                                else:
+                                    w, b = tf.get_variable(TF_WEIGHTS), tf.get_variable(TF_BIAS)
+
                             h_out_list.append(tf.matmul(h_list[di], w) + b)
 
                     x = tf.squeeze(tf.stack(h_out_list, axis=1))
@@ -378,7 +409,7 @@ def tower_loss(dataset, labels, weighted, tf_data_weights, tf_cnn_hyperparameter
     rand_mask = tf.cast(tf.greater(tf.random_normal([batch_size, 3], dtype=tf.float32), 0.0), dtype=tf.float32)
     label_mask = labels + (tf.cast(tf.equal(labels, 0.0), dtype=tf.float32) * rand_mask)
 
-    logits = inference(dataset, tf_cnn_hyperparameters, True)
+    logits = inference(dataset, tf_cnn_hyperparameters, True, False)
 
     loss = tf.reduce_mean(tf.reduce_sum((tf.nn.softmax(logits) * label_mask - labels) ** 2, axis=[1]), axis=[0])
 
@@ -404,7 +435,7 @@ def tower_loss(dataset, labels, weighted, tf_data_weights, tf_cnn_hyperparameter
 
 
 def calc_loss_vector(dataset, labels, tf_cnn_hyperparameters):
-    logits = inference(dataset, tf_cnn_hyperparameters, True)
+    logits = inference(dataset, tf_cnn_hyperparameters, True, False)
     return tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels, name=TF_LOSS_VEC_STR)
 
 
@@ -460,8 +491,8 @@ def predict_with_logits(logits):
     return prediction
 
 
-def predict_with_dataset(dataset, tf_cnn_hyperparameters):
-    logits = inference(dataset, tf_cnn_hyperparameters, False)
+def predict_with_dataset(dataset, tf_cnn_hyperparameters, use_best_model):
+    logits = inference(dataset, tf_cnn_hyperparameters, False, use_best_model)
     prediction = tf.nn.softmax(logits)
     return prediction
 
@@ -621,7 +652,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     global tf_pool_avg_gradvars, apply_pool_grads_op, update_pool_velocity_ops, mean_pool_loss
     global valid_loss_op,valid_predictions_op, test_predicitons_op
     global tf_valid_data_batch,tf_valid_label_batch
-    global pool_pred, augmented_pool_data_batch, augmented_pool_label_batch
+    global pool_pred, pool_pred_best, augmented_pool_data_batch, augmented_pool_label_batch
     global tf_update_hyp_ops, tf_action_info
     global tf_weights_this,tf_bias_this, tf_bn_ones_this, tf_bn_zeros_this, tf_weights_next,tf_wvelocity_this, tf_bvelocity_this, tf_wvelocity_next
     global tf_weight_shape,tf_in_size, tf_out_size
@@ -630,6 +661,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     global tf_scale_parameter
     global logger
     global train_data_gen, test_data_gen
+    global tf_copy_best_weights
 
     define_conv_dropout_placeholder()
 
@@ -674,7 +706,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
 
     # Training data opearations
     logger.info('\tDefining logit operations')
-    tf_logits = inference(tf_train_data_batch, tf_cnn_hyperparameters, True)
+    tf_logits = inference(tf_train_data_batch, tf_cnn_hyperparameters, True, False)
 
     logger.info('\tDefine Loss for each tower')
     tf_loss = tower_loss(tf_train_data_batch, tf_train_label_batch, True,
@@ -690,7 +722,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     )
 
     logger.info('\tPrediction operations for tower')
-    tf_pred = predict_with_dataset(tf_train_data_batch, tf_cnn_hyperparameters)
+    tf_pred = predict_with_dataset(tf_train_data_batch, tf_cnn_hyperparameters, True)
 
     # Pooling data operations
     logger.info('\tPool related operations')
@@ -733,13 +765,13 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     # GLOBAL: Tensorflow operations for hard_pool
     with tf.name_scope('pool') as scope:
         tf.get_variable_scope().reuse_variables()
-        pool_pred = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters)
-
+        pool_pred = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters, False)
+        pool_pred_best = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters, True)
     # GLOBAL: Tensorflow operations for test data
     # Valid data (Next train batch) Unseen
     logger.info('Validation data placeholders, losses and predictions')
 
-    test_predicitons_op = predict_with_dataset(tf_test_dataset, tf_cnn_hyperparameters)
+    test_predicitons_op = predict_with_dataset(tf_test_dataset, tf_cnn_hyperparameters, True)
 
     # GLOBAL: Structure adaptation
     with tf.name_scope(TF_ADAPTATION_NAME_SCOPE):
@@ -784,6 +816,8 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
             tf_reset_cnn = cnn_intializer.reset_cnn(
                 init_cnn_hyperparameters,cnn_ops
             )
+
+            tf_copy_best_weights = cnn_intializer.copy_weights_to_best_model(cnn_ops)
 
             for op in cnn_ops:
                 if 'pool' in op:
@@ -849,7 +883,7 @@ def tf_augment_data_with(tf_pool_batch):
     return tf_aug_pool_batch
 
 
-def get_pool_valid_accuracy(hard_pool_valid):
+def get_pool_valid_accuracy(hard_pool_valid, use_best):
     global pool_dataset, pool_labels, pool_pred
     tmp_pool_accuracy = []
     pool_dataset, pool_labels = hard_pool_valid.get_pool_data(False)
@@ -858,9 +892,13 @@ def get_pool_valid_accuracy(hard_pool_valid):
         pbatch_labels = pool_labels[pool_id * batch_size:(pool_id + 1) * batch_size, :]
         pool_feed_dict = {tf_pool_data_batch: pbatch_data,
                           tf_pool_label_batch: pbatch_labels}
-
-        p_predictions = session.run(pool_pred, feed_dict=pool_feed_dict)
-        tmp_pool_accuracy.append(accuracy(p_predictions, pbatch_labels))
+        if not use_best:
+            p_predictions = session.run(pool_pred, feed_dict=pool_feed_dict)
+        else:
+            p_predictions = session.run(pool_pred_best, feed_dict=pool_feed_dict)
+        #tmp_pool_accuracy.append(accuracy(p_predictions, pbatch_labels))
+        tmp_pool_accuracy.append(models_utils.soft_accuracy(
+            p_predictions,pbatch_labels,use_argmin=False,max_thresh=max_thresh, min_thresh=min_thresh))
 
     return np.mean(tmp_pool_accuracy)
 
@@ -1430,7 +1468,7 @@ def get_continuous_adaptation_action_randomly(q_learner, data, epoch, global_tri
     return state, action, invalid_actions, adapting_now
 
 
-def calculate_pool_accuracy(hard_pool):
+def calculate_pool_accuracy(hard_pool,use_best):
     '''
     Calculates the mini-batch wise accuracy for all the data points in the pool
     :param hard_pool:
@@ -1444,17 +1482,20 @@ def calculate_pool_accuracy(hard_pool):
         pbatch_labels = pool_labels[pool_id * batch_size:(pool_id + 1) * batch_size, :]
         pool_feed_dict = {tf_pool_data_batch: pbatch_data,
                           tf_pool_label_batch: pbatch_labels}
-        p_predictions = session.run(pool_pred, feed_dict=pool_feed_dict)
+        if not use_best:
+            p_predictions = session.run(pool_pred, feed_dict=pool_feed_dict)
+        else:
+            p_predictions = session.run(pool_pred_best, feed_dict=pool_feed_dict)
 
-        pool_accuracy.append(accuracy(p_predictions, pbatch_labels))
+        pool_accuracy.append(models_utils.soft_accuracy(p_predictions, pbatch_labels,use_argmin=False,max_thresh=max_thresh,min_thresh=min_thresh))
 
     return np.mean(pool_accuracy) if len(pool_accuracy) > 0 else 0
 
+
 def update_dropout_rate(train_env_idx):
     global dropout_rate
-    all_dropout_rates = [0.9,0.7,0.9]
+    all_dropout_rates = [0.3,0.4,0.5]
     dropout_rate = all_dropout_rates[train_env_idx]
-
 
 
 if __name__ == '__main__':
@@ -1721,6 +1762,9 @@ if __name__ == '__main__':
     # Reward for Q-Learner
     prev_pool_accuracy = 0
     max_pool_accuracy = 0
+    pool_weighted_accuracies = [0.0]
+    pool_acc_no_improvement_count = 0
+    stop_training = False
 
     # Stop and start adaptations when necessary
     start_adapting = False
@@ -1738,7 +1782,7 @@ if __name__ == '__main__':
     if adapt_structure:
         adapter = growth_adapter
 
-    research_parameters['momentum'] = 0.9
+    research_parameters['momentum'] = 0.5
     research_parameters['pool_momentum'] = 0.9  # 0.9**(epoch+1)
 
     cnn_optimizer.update_hyperparameters(research_parameters)
@@ -1751,13 +1795,21 @@ if __name__ == '__main__':
 
     for epoch in range(n_epochs):
 
+        if stop_training:
+            break
         for train_env_idx in range(3):
+
+            if stop_training:
+                break
 
             train_accuracy = []
             train_soft_accuracy = []
 
             update_dropout_rate(train_env_idx)
             for env_epoch in range(model_hyperparameters['epochs_per_env']):
+
+                if stop_training:
+                    break
 
                 # we stop 'num_gpus' items before the ideal number of training batches
                 # because we always keep num_gpus items for valid data in memory
@@ -1882,13 +1934,17 @@ if __name__ == '__main__':
 
                         # Concatenate current 'num_gpus' batches to a single matrix
 
-                        single_iteration_batch_data, single_iteration_batch_labels = batch_data, \
-                                                                                     batch_labels
+                        single_iteration_batch_data, single_iteration_batch_labels = \
+                            session.run(
+                                [tf_train_data_batch, tf_train_label_batch],
+                                feed_dict=train_feed_dict)
 
                         # Higer rates of accumulating data causes the pool to lose uniformity
                         if rigid_pooling:
+                            batch_env_ids = np.array([train_env_idx for _ in range(batch_size)],
+                                                     dtype=np.float32).reshape(-1, 1)
                             #print('add examples to rigid pooling naive')
-                            hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels,
+                            hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
                                                               super_loss_vec,1.0)
                             logger.debug('\tPool size (FT): %d', hard_pool_ft.get_size())
 
@@ -1958,15 +2014,6 @@ if __name__ == '__main__':
                     # Finetune with data in hard_pool_ft (AdaCNN)
                     run_actual_finetune_operation(hard_pool_ft)
 
-                    # =================================================================
-                    # Calculate pool accuracy (hard_pool_valid)
-                    if adapt_structure:
-                        mean_pool_accuracy = get_pool_valid_accuracy(hard_pool_valid)
-                    elif rigid_pooling:
-                        mean_pool_accuracy = get_pool_valid_accuracy(hard_pool_ft)
-
-                    logger.info('\tPool accuracy (hard_pool_valid): %.5f', mean_pool_accuracy)
-                    # ==================================================================
 
                 # ==============================================================
                 # Testing Phase
@@ -2065,6 +2112,10 @@ if __name__ == '__main__':
                 train_losses = []
 
                 test_data_gen.reset_index()
+
+                if pool_acc_no_improvement_count > no_best_improvement:
+                    stop_training = True
+                    break
                 # =======================================================================
                 # Adaptations Phase of AdaCNN
                 if research_parameters['adapt_structure']:
@@ -2094,11 +2145,26 @@ if __name__ == '__main__':
                         # ==================================================================
                         if (not adapt_randomly) and curr_adaptation_status and current_state:
 
+
                             # ==================================================================
                             # Calculating pool accuracy
-                            p_accuracy = calculate_pool_accuracy(hard_pool_valid)
-                            logger.debug('Hard pool size at eval: %d',hard_pool_valid.get_size())
-                            logger.debug('Pool accuracy: %.3f', p_accuracy)
+                            p_accuracy = calculate_pool_accuracy(hard_pool_valid,use_best=False)
+                            p_best_accuracy = calculate_pool_accuracy(hard_pool_valid,use_best=True)
+
+
+                            logger.info('Pool accuracy: %.3f', p_accuracy)
+                            logger.info('Best_Pool accuracy: %.3f', p_best_accuracy)
+
+                            w_p_accuracy = (hard_pool_valid.get_size()*1.0/pool_size)*p_accuracy
+                            logger.info('Weighted pool accuracy: %.3f',w_p_accuracy)
+                            logger.info('(Max) Weighted pool accuracy: %.3f', max(pool_weighted_accuracies))
+
+                            if w_p_accuracy > pool_weighted_accuracies[-1]:
+                                session.run(tf_copy_best_weights)
+                            else:
+                                pool_acc_no_improvement_count += 1
+
+                            pool_weighted_accuracies.append(w_p_accuracy)
 
                             pool_acc_queue.append(p_accuracy)
                             if len(pool_acc_queue) > 20:
@@ -2142,6 +2208,7 @@ if __name__ == '__main__':
                                                    'prev_accuracy': None,
                                                    'pool_accuracy': pool_acc_queue[-1],
                                                    'prev_pool_accuracy': pool_acc_queue[-2] if len(pool_acc_queue)>1 else 0.0,
+                                                   'best_pool_accuracy': p_best_accuracy,
                                                    'max_pool_accuracy': max_pool_accuracy,
                                                    'invalid_actions': curr_invalid_actions,
                                                    'main_epoch':epoch,
