@@ -22,11 +22,13 @@ import ada_cnn_constants as constants
 import ada_cnn_cnn_hyperparameters_getter as cnn_hyperparameters_getter
 import ada_cnn_cnn_optimizer as cnn_optimizer
 import ada_cnn_cnn_intializer as cnn_intializer
+import ada_cnn_model_saver as cnn_model_saver
 import ada_cnn_adapter
 import data_generator
 import h5py
 import dataset_name_factory
 import models_utils
+import copy
 
 logging_level = logging.INFO
 logging_format = '[%(funcName)s] %(message)s'
@@ -1571,6 +1573,7 @@ if __name__ == '__main__':
 
     set_varialbes_with_input_arguments(adapt_structure,rigid_pooling)
     cnn_intializer.set_from_main(research_parameters, logging_level, logging_format,model_hyperparameters)
+    cnn_model_saver.set_from_main(output_dir)
 
     logger.info('Creating CNN hyperparameters and operations in the correct format')
     # Getting hyperparameters
@@ -1759,13 +1762,14 @@ if __name__ == '__main__':
     # Check if loss is stabilized (for starting adaptations)
     previous_loss = 1e5  # used for the check to start adapting
 
+    best_cnn_hyperparameter = None
     # Reward for Q-Learner
     prev_pool_accuracy = 0
     max_pool_accuracy = 0
     max_weighted_pool_accuracy = 0.0
     pool_acc_no_improvement_count = 0
     stop_training = False
-
+    p_accuracy = 0.0
     # Stop and start adaptations when necessary
     start_adapting = False
     stop_adapting = False
@@ -1805,7 +1809,7 @@ if __name__ == '__main__':
             train_accuracy = []
             train_soft_accuracy = []
 
-            update_dropout_rate(train_env_idx)
+            #update_dropout_rate(train_env_idx)
             for env_epoch in range(model_hyperparameters['epochs_per_env']):
 
                 if stop_training:
@@ -1817,7 +1821,7 @@ if __name__ == '__main__':
                 all_dataset_sizes = sum([dataset_sizes['train_dataset'][tr_e]//batch_size for tr_e in range(3)])
 
                 local_trial_phase = env_epoch*1.0/model_hyperparameters['epochs_per_env']
-                global_trial_phase = (epoch*3)+ train_env_idx + local_trial_phase
+                global_trial_phase = (epoch*model_hyperparameters['num_env']) + train_env_idx + local_trial_phase
 
                 for batch_id in range(n_iterations):
 
@@ -1944,8 +1948,9 @@ if __name__ == '__main__':
                             batch_env_ids = np.array([train_env_idx for _ in range(batch_size)],
                                                      dtype=np.float32).reshape(-1, 1)
                             #print('add examples to rigid pooling naive')
-                            hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
-                                                              super_loss_vec,1.0,True)
+                            if np.random.random() < 0.01:
+                                hard_pool_ft.add_hard_examples(single_iteration_batch_data, single_iteration_batch_labels, batch_env_ids,
+                                                                  super_loss_vec,1.0,True)
                             logger.debug('\tPool size (FT): %d', hard_pool_ft.get_size())
 
                         # =========================================================
@@ -2151,23 +2156,32 @@ if __name__ == '__main__':
                             p_accuracy = calculate_pool_accuracy(hard_pool_valid,use_best=False)
                             p_best_accuracy = calculate_pool_accuracy(hard_pool_valid,use_best=True)
 
+                            normalized_iteration = \
+                                epoch + (train_env_idx + local_trial_phase) * 1.0 / model_hyperparameters['num_env']
 
+                            logger.info('Normalized iteration: %.3f', normalized_iteration)
                             logger.info('Pool accuracy: %.3f', p_accuracy)
                             logger.info('Best_Pool accuracy: %.3f', p_best_accuracy)
 
-                            w_p_accuracy = (hard_pool_valid.get_size()*1.0/pool_size)*p_accuracy
+                            w_p_accuracy = np.log(np.sqrt(normalized_iteration+1.1))*p_accuracy
                             logger.info('Weighted pool accuracy: %.3f',w_p_accuracy)
                             logger.info('(Max) Weighted pool accuracy: %.3f', max_weighted_pool_accuracy)
 
                             if w_p_accuracy > max_weighted_pool_accuracy:
                                 session.run(tf_copy_best_weights)
                                 max_weighted_pool_accuracy = w_p_accuracy
+                                best_cnn_hyperparameter = copy.deepcopy(cnn_hyperparameters)
+
                             else:
                                 pool_acc_no_improvement_count += 1
 
                             pool_acc_queue.append(p_accuracy)
                             if len(pool_acc_queue) > 20:
                                 del pool_acc_queue[0]
+
+                            if best_cnn_hyperparameter is not None:
+                                logger.info(best_cnn_hyperparameter)
+
                             # ===============================================================================
 
                             # don't use current state as the next state, current state is for a different layer
@@ -2250,7 +2264,11 @@ if __name__ == '__main__':
                         # Epoch 1: Deterministically grow the network
                         if not adapt_randomly:
                             current_state, current_action, curr_invalid_actions,curr_adaptation_status = get_continuous_adaptation_action_in_different_epochs(
-                                adapter, data = {'filter_counts': filter_dict, 'filter_counts_list': filter_list, 'binned_data_dist':running_binned_data_dist_vector.tolist()}, epoch=epoch,
+                                adapter,
+                                data = {'filter_counts': filter_dict,
+                                        'filter_counts_list': filter_list,
+                                        'binned_data_dist':running_binned_data_dist_vector.tolist(),
+                                        'pool_accuracy':p_accuracy}, epoch=epoch,
                                 global_trial_phase=global_trial_phase, local_trial_phase=local_trial_phase, n_conv=len(convolution_op_ids), n_fulcon=len(fulcon_op_ids),
                                 eps=start_eps, adaptation_period=adapt_period)
                         else:
@@ -2320,5 +2338,6 @@ if __name__ == '__main__':
                 # At the moment not stopping adaptations for any reason
                 # stop_adapting = adapter.check_if_should_stop_adapting()
 
-        #cnn_model_saver.save_cnn_hyperparameters(cnn_ops,final_2d_width,cnn_hyperparameters,'cnn-hyperparameters-%d.pickle'%epoch)
-        #cnn_model_saver.save_cnn_weights(cnn_ops,session,'cnn-model-%d.ckpt'%epoch)
+        cnn_model_saver.save_cnn_hyperparameters(cnn_ops,final_2d_width, final_2d_height,
+                                                 best_cnn_hyperparameter,'cnn-hyperparameters-%d.pickle'%epoch)
+        cnn_model_saver.save_cnn_weights(cnn_ops,session,'cnn-model-%d.ckpt'%epoch,use_best=True)

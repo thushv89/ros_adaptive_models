@@ -80,7 +80,7 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
 
     model_hyperparameters['use_batchnorm'] = False
     model_hyperparameters['bn_decay'] = 0.99
-    model_hyperparameters['use_dropout'] = False
+    model_hyperparameters['use_dropout'] = True
     model_hyperparameters['check_early_stopping_from'] = 5
     model_hyperparameters['accuracy_drop_cap'] = 3
     if not adapt_structure and not use_pooling:

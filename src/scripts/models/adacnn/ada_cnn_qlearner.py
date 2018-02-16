@@ -238,7 +238,7 @@ class AdaCNNAdaptingQLearner(object):
         Calculate input size for MLP (depends on the length of the history)
         :return:
         '''
-        dummy_state = [0 for _ in range(self.net_depth+self.binned_data_dist_length)]
+        dummy_state = [0 for _ in range(self.net_depth+self.binned_data_dist_length+1)]
         dummy_state = tuple(dummy_state)
 
         dummy_action = tuple([0 for _ in range(self.output_size)])
@@ -779,6 +779,7 @@ class AdaCNNAdaptingQLearner(object):
         state = []
         state.extend(data['filter_counts_list'])
         state.extend(data['binned_data_dist'])
+        state.append(data['pool_accuracy']/100.0)
 
         self.verbose_logger.info('Data for (Depth Index,DistMSE,Filter Count) %s\n' % str(state))
         history_t_plus_1 = list(self.current_state_history)
@@ -1153,8 +1154,6 @@ class AdaCNNAdaptingQLearner(object):
             reward = mean_accuracy - comp_gain #+ 0.5*immediate_mean_accuracy # new
         else:
             reward = mean_accuracy + 0.01
-
-
 
         if data['pool_accuracy'] > self.max_pool_accuracy:
             self.max_pool_accuracy = data['pool_accuracy']
