@@ -76,7 +76,7 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     model_hyperparameters['in_dropout_rate'] = 0.0
 
     model_hyperparameters['save_best_model'] = True
-    model_hyperparameters['no_best_improvement'] = 250
+    model_hyperparameters['no_best_improvement'] = 110
 
     model_hyperparameters['use_batchnorm'] = False
     model_hyperparameters['bn_decay'] = 0.99

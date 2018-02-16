@@ -2163,7 +2163,7 @@ if __name__ == '__main__':
                             logger.info('Pool accuracy: %.3f', p_accuracy)
                             logger.info('Best_Pool accuracy: %.3f', p_best_accuracy)
 
-                            w_p_accuracy = np.log(np.sqrt(normalized_iteration+1.1))*p_accuracy
+                            w_p_accuracy = (0.5 + np.log((normalized_iteration+1.1)**0.25))*p_accuracy
                             logger.info('Weighted pool accuracy: %.3f',w_p_accuracy)
                             logger.info('(Max) Weighted pool accuracy: %.3f', max_weighted_pool_accuracy)
 
@@ -2171,7 +2171,7 @@ if __name__ == '__main__':
                                 session.run(tf_copy_best_weights)
                                 max_weighted_pool_accuracy = w_p_accuracy
                                 best_cnn_hyperparameter = copy.deepcopy(cnn_hyperparameters)
-
+                                pool_acc_no_improvement_count = 0
                             else:
                                 pool_acc_no_improvement_count += 1
 

@@ -31,7 +31,7 @@ class DataGenerator(object):
             self.labels.append(dataset_file['/labels'])
 
 
-    def tf_augment_data_with(self):
+    def tf_augment_data_with(self,adjust_brightness_contrast=True):
 
         tf_image_batch = self.tf_image_ph
         label_batch = tf.one_hot(self.tf_label_ph, config.TF_NUM_CLASSES, dtype=tf.float32, on_value=1.0, off_value=0.0)
@@ -42,8 +42,9 @@ class DataGenerator(object):
             ), tf_image_batch)
 
             #Adjust contrast/brightness randomly
-            tf_image_batch = tf.image.random_brightness(tf_image_batch, 0.2)
-            tf_image_batch = tf.image.random_contrast(tf_image_batch, 0.5, 1.2)
+            if adjust_brightness_contrast:
+                tf_image_batch = tf.image.random_brightness(tf_image_batch, 0.2)
+                tf_image_batch = tf.image.random_contrast(tf_image_batch, 0.5, 1.2)
             #tf_image_batch = tf.random_crop(tf_image_batch,[self.batch_size] + self.input_size_after_resize,seed=13423905832)
         else:
             tf_image_batch = tf.map_fn(lambda img: tf.image.crop_to_bounding_box(img, 16, 16, 64, 128), tf_image_batch)

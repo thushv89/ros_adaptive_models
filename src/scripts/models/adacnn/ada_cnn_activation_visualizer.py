@@ -14,7 +14,7 @@ import data_generator
 import numpy as np
 from math import ceil
 import ada_cnn_constants as constants
-
+import getopt
 
 logger = logging.getLogger('CNNVisualizationLogger')
 logger.setLevel(logging.DEBUG)
@@ -85,16 +85,16 @@ def cnn_visualize_activations(hyperparam_dict, activation_image,batch_size):
     return activation_dict
 
 
-def save_activation_maps():
+def save_activation_maps(main_dir,epoch):
 
     dataset_filenames, dataset_sizes = dataset_name_factory.new_get_noncol_train_data_sorted_by_direction_noncol_test_data()
 
     configp = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)
     sess = tf.InteractiveSession(config=configp)
 
-    main_dir = 'adacnn-copy-best-model'
-    hyperparam_filepath = main_dir + os.sep + config.WEIGHT_SAVE_DIR + os.sep + 'cnn-hyperparameters-0.pickle'
-    weights_filepath = main_dir + os.sep + config.WEIGHT_SAVE_DIR + os.sep + 'cnn-model-0.ckpt'
+
+    hyperparam_filepath = main_dir + os.sep + config.WEIGHT_SAVE_DIR + os.sep + 'cnn-hyperparameters-'+str(epoch)+'.pickle'
+    weights_filepath = main_dir + os.sep + config.WEIGHT_SAVE_DIR + os.sep + 'cnn-model-'+str(epoch)+'.ckpt'
 
     with open(hyperparam_filepath,'rb') as f:
         hyperparam_dict = pickle.load(f)
@@ -127,23 +127,23 @@ def save_activation_maps():
             print([v.name for v in tf.global_variables()])
             v_list = sess.run(tf.global_variables())
 
-            tf_train_img_ids, tf_train_data_batch, tf_train_label_batch = train_data_gen.tf_augment_data_with()
-            tf_test_img_ids , tf_test_dataset, tf_test_labels = test_data_gen.tf_augment_data_with()
+            tf_train_img_ids, tf_train_data_batch, tf_train_label_batch = train_data_gen.tf_augment_data_with(adjust_brightness_contrast=False)
+            tf_test_img_ids , tf_test_dataset, tf_test_labels = test_data_gen.tf_augment_data_with(adjust_brightness_contrast=False)
 
             tf_train_activation_dict = cnn_visualize_activations(hyperparam_dict, tf_train_data_batch,1)
             tf_test_activation_dict = cnn_visualize_activations(hyperparam_dict,tf_test_dataset,1)
 
             for train_env_idx in range(3):
-                for step in range(10):
+                for step in range(20):
                     tr_img_id, tr_images, tr_labels = train_data_gen.sample_a_batch_from_data(train_env_idx, shuffle=True)
                     ts_img_id, ts_images, ts_labels = test_data_gen.sample_a_batch_from_data(train_env_idx, shuffle=True)
                     print('Train env idx: %d, Step %d' %(train_env_idx,step))
-                    train_activation_dict = sess.run(tf_train_activation_dict,feed_dict={train_data_gen.tf_image_ph:tr_images})
-                    test_activation_dict = sess.run(tf_test_activation_dict, feed_dict={test_data_gen.tf_image_ph: ts_images})
+                    cropped_train_images, train_activation_dict = sess.run([tf_train_data_batch,tf_train_activation_dict],feed_dict={train_data_gen.tf_image_ph:tr_images})
+                    cropped_test_images, test_activation_dict = sess.run([tf_test_dataset,tf_test_activation_dict], feed_dict={test_data_gen.tf_image_ph: ts_images})
 
-                    cnn_store_activations_as_image(train_env_idx,train_activation_dict, tr_images, tr_img_id,
+                    cnn_store_activations_as_image(train_env_idx,train_activation_dict, cropped_train_images, tr_img_id,
                                                                         main_dir + os.sep + config.ACTIVATION_MAP_DIR + os.sep + 'train_cnn_model')
-                    cnn_store_activations_as_image(train_env_idx,test_activation_dict, ts_images, ts_img_id,
+                    cnn_store_activations_as_image(train_env_idx,test_activation_dict, cropped_test_images, ts_img_id,
                                                                         main_dir + os.sep + config.ACTIVATION_MAP_DIR + os.sep + 'test_cnn_model')
 
 
@@ -180,13 +180,28 @@ def cnn_store_activations_as_image(train_env_idx, activation_dict,orig_image,img
             norm_img = orig_image[0, :, :, :] - np.min(orig_image[0, :, :, :])
             norm_img = (norm_img / np.max(norm_img))
             ax[0].imshow(norm_img)
-            ax[1].imshow(np.tile(v,(2,1)),aspect=None,vmin=0.0,vmax=1.0)
+            ax[1].imshow(np.tile(v,(2,1)),aspect=None,vmin=0.0,vmax=0.5)
 
-        fig.savefig(filename_prefix + '_activation_%d_%s_%d.jpg'%(train_env_idx,k,img_id))
+        plt.subplots_adjust(wspace=0.05,hspace=0.05)
+        fig.savefig(filename_prefix + '_activation_%d_%d_%s.jpg'%(train_env_idx,img_id,k))
         plt.cla()
         plt.close(fig)
 
 
 if __name__ == '__main__':
-    print(os.getcwd())
-    save_activation_maps()
+
+    try:
+        opts, args = getopt.getopt(
+            sys.argv[1:], "", ["output_dir=","epoch="])
+    except getopt.GetoptError as err:
+        print(err.with_traceback())
+        print('<filename>.py --output_dir= --num_gpus= --memory=')
+
+    if len(opts) != 0:
+        for opt, arg in opts:
+            if opt == '--output_dir':
+                main_dir = arg
+            if opt =='--epoch':
+                epoch = int(arg)
+
+    save_activation_maps(main_dir,epoch)
