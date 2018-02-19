@@ -39,7 +39,7 @@ rigid_pooling = False
 rigid_naive = False
 
 act_decay = 0.99
-max_thresh = 0.35
+max_thresh = 0.4
 min_thresh = 0.1
 
 interval_parameters, research_parameters, model_hyperparameters, dataset_info = None, None, None, None
@@ -414,6 +414,7 @@ def tower_loss(dataset, labels, weighted, tf_data_weights, tf_cnn_hyperparameter
     logits = inference(dataset, tf_cnn_hyperparameters, True, False)
 
     loss = tf.reduce_mean(tf.reduce_sum((tf.nn.softmax(logits) * label_mask - labels) ** 2, axis=[1]), axis=[0])
+    loss_vector = tf.reduce_sum((tf.nn.softmax(logits) * label_mask - labels) ** 2, axis=[1])
 
     if include_l2_loss:
 
@@ -430,15 +431,10 @@ def tower_loss(dataset, labels, weighted, tf_data_weights, tf_cnn_hyperparameter
                             l2_weights.append(tf.get_variable(TF_WEIGHTS))
 
         loss = tf.reduce_sum([loss, beta * tf.reduce_sum([tf.nn.l2_loss(w) for w in l2_weights])])
-
+        #loss_vector += beta * tf.reduce_sum([tf.nn.l2_loss(w) for w in l2_weights])
     total_loss = loss
 
-    return total_loss
-
-
-def calc_loss_vector(dataset, labels, tf_cnn_hyperparameters):
-    logits = inference(dataset, tf_cnn_hyperparameters, True, False)
-    return tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels, name=TF_LOSS_VEC_STR)
+    return total_loss,loss_vector
 
 
 def average_gradients(tower_grads):
@@ -711,11 +707,8 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     tf_logits = inference(tf_train_data_batch, tf_cnn_hyperparameters, True, False)
 
     logger.info('\tDefine Loss for each tower')
-    tf_loss = tower_loss(tf_train_data_batch, tf_train_label_batch, True,
+    tf_loss,tf_loss_vec = tower_loss(tf_train_data_batch, tf_train_label_batch, True,
                                tf_data_weights, tf_cnn_hyperparameters)
-
-    tf_loss_vec = calc_loss_vector(tf_train_data_batch, tf_train_label_batch,
-                                         tf_cnn_hyperparameters)
 
     logger.info('\tGradient calculation opeartions for tower')
     tf_grads = cnn_optimizer.gradients(
@@ -724,7 +717,10 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     )
 
     logger.info('\tPrediction operations for tower')
-    tf_pred = predict_with_dataset(tf_train_data_batch, tf_cnn_hyperparameters, True)
+    if adapt_structure:
+        tf_pred = predict_with_dataset(tf_train_data_batch, tf_cnn_hyperparameters, True)
+    else:
+        tf_pred = predict_with_dataset(tf_train_data_batch, tf_cnn_hyperparameters, False)
 
     # Pooling data operations
     logger.info('\tPool related operations')
@@ -745,7 +741,7 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     with tf.name_scope('pool') as scope:
         #single_pool_logit_op = inference(tf_pool_data_batch[-1],tf_cnn_hyperparameters, True)
 
-        tf_pool_loss = tower_loss(augmented_pool_data_batch, augmented_pool_label_batch, False, None,
+        tf_pool_loss,_ = tower_loss(augmented_pool_data_batch, augmented_pool_label_batch, False, None,
                                       tf_cnn_hyperparameters)
         tf_pool_grad = cnn_optimizer.gradients(optimizer, tf_pool_loss, global_step, start_lr)
 
@@ -768,12 +764,18 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
     with tf.name_scope('pool') as scope:
         tf.get_variable_scope().reuse_variables()
         pool_pred = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters, False)
-        pool_pred_best = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters, True)
+        if adapt_structure:
+            pool_pred_best = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters, True)
+        else:
+            pool_pred_best = predict_with_dataset(tf_pool_data_batch, tf_cnn_hyperparameters, False)
     # GLOBAL: Tensorflow operations for test data
     # Valid data (Next train batch) Unseen
     logger.info('Validation data placeholders, losses and predictions')
 
-    test_predicitons_op = predict_with_dataset(tf_test_dataset, tf_cnn_hyperparameters, True)
+    if adapt_structure:
+        test_predicitons_op = predict_with_dataset(tf_test_dataset, tf_cnn_hyperparameters, True)
+    else:
+        test_predicitons_op = predict_with_dataset(tf_test_dataset, tf_cnn_hyperparameters, False)
 
     # GLOBAL: Structure adaptation
     with tf.name_scope(TF_ADAPTATION_NAME_SCOPE):
@@ -831,14 +833,14 @@ def define_tf_ops(global_step, tf_cnn_hyperparameters, init_cnn_hyperparameters)
                                                                         name='retain_id_placeholder_out_' + op)
 
             #Partial Logits and Grads (TOP and BOTTOM)
-            partial_bottom_train_loss = tower_loss(tf_train_data_batch, tf_train_label_batch, True,
+            partial_bottom_train_loss,_ = tower_loss(tf_train_data_batch, tf_train_label_batch, True,
                                                 tf_data_weights, tf_cnn_hyperparameters)
             partial_bottom_grads = cnn_optimizer.gradients(optimizer, partial_bottom_train_loss, global_step, start_lr)
 
             tf_training_slice_optimize_bottom, tf_training_slice_vel_update_bottom = \
                 cnn_optimizer.apply_gradient_with_rmsprop(optimizer, start_lr, global_step, partial_bottom_grads)
 
-            partial_bottom_pool_loss = tower_loss(tf_pool_data_batch, tf_pool_label_batch, False,
+            partial_bottom_pool_loss,_ = tower_loss(tf_pool_data_batch, tf_pool_label_batch, False,
                                                    None, tf_cnn_hyperparameters)
             partial_pool_bottom_grads = cnn_optimizer.gradients(optimizer, partial_bottom_pool_loss, global_step,
                                                            start_lr)
@@ -1886,6 +1888,12 @@ if __name__ == '__main__':
                          tf_pred], feed_dict=train_feed_dict
                     )
 
+                    if batch_id==0:
+                        logger.info('='*40)
+                        for l_item,p_item in zip(batch_labels, train_predictions):
+                            logger.info(str(l_item)+ ': \t' +str(p_item))
+                        logger.info('='*40)
+
                     current_train_acc = models_utils.accuracy(train_predictions, batch_labels, use_argmin=False)
                     current_soft_train_acc = models_utils.soft_accuracy(
                         train_predictions, batch_labels,
@@ -2162,7 +2170,7 @@ if __name__ == '__main__':
                             logger.info('Normalized iteration: %.3f', normalized_iteration)
                             logger.info('Pool accuracy: %.3f', p_accuracy)
                             logger.info('Best_Pool accuracy: %.3f', p_best_accuracy)
-
+                            logger.info('Pool accuracy no Improvement: %d', pool_acc_no_improvement_count)
                             w_p_accuracy = (0.5 + np.log((normalized_iteration+1.1)**0.25))*p_accuracy
                             logger.info('Weighted pool accuracy: %.3f',w_p_accuracy)
                             logger.info('(Max) Weighted pool accuracy: %.3f', max_weighted_pool_accuracy)
@@ -2171,9 +2179,12 @@ if __name__ == '__main__':
                                 session.run(tf_copy_best_weights)
                                 max_weighted_pool_accuracy = w_p_accuracy
                                 best_cnn_hyperparameter = copy.deepcopy(cnn_hyperparameters)
-                                pool_acc_no_improvement_count = 0
-                            else:
-                                pool_acc_no_improvement_count += 1
+
+                            if epoch>1:
+                                if w_p_accuracy > max_weighted_pool_accuracy:
+                                    pool_acc_no_improvement_count = 0
+                                else:
+                                    pool_acc_no_improvement_count += 1
 
                             pool_acc_queue.append(p_accuracy)
                             if len(pool_acc_queue) > 20:
@@ -2338,6 +2349,8 @@ if __name__ == '__main__':
                 # At the moment not stopping adaptations for any reason
                 # stop_adapting = adapter.check_if_should_stop_adapting()
 
-        cnn_model_saver.save_cnn_hyperparameters(cnn_ops,final_2d_width, final_2d_height,
-                                                 best_cnn_hyperparameter,'cnn-hyperparameters-%d.pickle'%epoch)
-        cnn_model_saver.save_cnn_weights(cnn_ops,session,'cnn-model-%d.ckpt'%epoch,use_best=True)
+        if adapt_structure:
+            cnn_model_saver.save_cnn_hyperparameters(cnn_ops,final_2d_width, final_2d_height,
+                                                     best_cnn_hyperparameter,'cnn-hyperparameters-%d.pickle'%epoch)
+            cnn_model_saver.save_cnn_weights(cnn_ops,session,'cnn-model-%d.ckpt'%epoch,use_best=True)
+

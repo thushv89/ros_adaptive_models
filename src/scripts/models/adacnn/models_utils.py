@@ -22,7 +22,7 @@ logger.addHandler(console)
 logger.addHandler(fileHandler)
 
 
-def lrelu(x, leak=0.01, name="lrelu"):
+def lrelu(x, leak=0.2, name="lrelu"):
     with tf.variable_scope(name):
         f1 = 0.5 * (1 + leak)
         f2 = 0.5 * (1 - leak)

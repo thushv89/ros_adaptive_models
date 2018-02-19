@@ -141,4 +141,7 @@ WEIGHT_SAVE_DIR = 'model_weights'
 CLASSIF_RESULT_DIR = 'classified_results'
 
 MAX_THRESH = 0.35
-MIN_THRESH = 0.1
+MIN_THRESH = 0.25
+
+ACT_MAX_THRESH = 0.4
+ACT_MIN_THRESH = 0.2

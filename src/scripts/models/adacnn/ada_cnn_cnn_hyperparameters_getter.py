@@ -66,7 +66,7 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     model_hyperparameters = {}
     model_hyperparameters['adapt_structure'] = adapt_structure
     model_hyperparameters['batch_size'] = 25  # number of datapoints in a single batch
-    model_hyperparameters['start_lr'] = 0.0001
+    model_hyperparameters['start_lr'] = 0.0003
     model_hyperparameters['min_learning_rate'] = 0.000001
     model_hyperparameters['decay_learning_rate'] = True
     model_hyperparameters['decay_rate'] = 0.75
@@ -76,7 +76,7 @@ def get_model_specific_hyperparameters(adapt_structure, use_pooling, use_fse_cap
     model_hyperparameters['in_dropout_rate'] = 0.0
 
     model_hyperparameters['save_best_model'] = True
-    model_hyperparameters['no_best_improvement'] = 110
+    model_hyperparameters['no_best_improvement'] = 310
 
     model_hyperparameters['use_batchnorm'] = False
     model_hyperparameters['bn_decay'] = 0.99

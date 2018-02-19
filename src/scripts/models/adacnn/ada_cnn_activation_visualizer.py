@@ -177,6 +177,11 @@ def save_classif_and_misclassif(main_dir, epoch):
 
         with tf.variable_scope(constants.TF_GLOBAL_SCOPE):
 
+            train_data_gen = data_generator.DataGenerator(
+                1, 3, dataset_sizes['train_dataset'],
+                config.TF_INPUT_SIZE, sess, dataset_filenames['train_dataset'],
+                config.TF_INPUT_AFTER_RESIZE, True
+            )
             test_data_gen = data_generator.DataGenerator(
                 1, 3, dataset_sizes['test_dataset'],
                 config.TF_INPUT_SIZE, sess, dataset_filenames['test_dataset'],
@@ -188,19 +193,28 @@ def save_classif_and_misclassif(main_dir, epoch):
 
             tf_test_img_ids, tf_test_dataset, tf_test_labels = test_data_gen.tf_augment_data_with(
                 adjust_brightness_contrast=False)
+            tf_train_img_ids, tf_train_dataset, tf_train_labels = train_data_gen.tf_augment_data_with(
+                adjust_brightness_contrast=False)
 
             tf_predictions = infer_prediction(hyperparam_dict, tf_test_dataset, 1)
 
-            classif_result_dict = {'left':[],'straight':[],'right':[]}
-            misclassif_result_dict = {'left':[],'straight':[],'right':[]}
-            classif_filled = {'left':False, 'right':False,'straight':False}
-            misclassif_filled = {'left':False, 'right':False,'straight':False}
-
             directions = ['left','straight','right']
             for train_env_idx in range(3):
-                for step in range(500):
-                    ts_img_id, ts_images, ts_labels = test_data_gen.sample_a_batch_from_data(train_env_idx,
-                                                                                             shuffle=True)
+                classif_result_dict = {'left': [], 'straight': [], 'right': []}
+                misclassif_result_dict = {'left': [], 'straight': [], 'right': []}
+
+                classif_prediction_result_dict = {'left': [], 'straight': [], 'right': []}
+                misclassif_prediction_result_dict = {'left': [], 'straight': [], 'right': []}
+
+                classif_filled = {'left': False, 'right': False, 'straight': False}
+                misclassif_filled = {'left': False, 'right': False, 'straight': False}
+                for step in range(3000):
+                    if np.random.random()<0.3:
+                        ts_img_id, ts_images, ts_labels = test_data_gen.sample_a_batch_from_data(
+                        train_env_idx,shuffle=True)
+                    else:
+                        ts_img_id, ts_images, ts_labels = train_data_gen.sample_a_batch_from_data(
+                            train_env_idx, shuffle=True)
                     print('Train env idx: %d, Step %d' % (train_env_idx, step))
 
                     cropped_test_images, test_prediction = sess.run(
@@ -208,20 +222,24 @@ def save_classif_and_misclassif(main_dir, epoch):
 
                     ts_labels = int(np.asscalar(ts_labels))
                     prediction_for_correct_label = test_prediction[ts_labels]
+                    pred_label = int(np.argmax(prediction_for_correct_label))
 
-                    if prediction_for_correct_label>config.MAX_THRESH:
+                    print(ts_labels, ', ',prediction_for_correct_label,', ',pred_label)
+
+                    if prediction_for_correct_label > config.ACT_MAX_THRESH:# and pred_label==ts_labels:
 
                         if len(classif_result_dict[directions[ts_labels]])<3:
                             classif_result_dict[directions[ts_labels]].append(cropped_test_images)
+                            classif_prediction_result_dict[directions[ts_labels]].append(test_prediction)
                         else:
-
                             classif_filled[directions[ts_labels]] = True
-                    else:
+
+                    elif prediction_for_correct_label< config.ACT_MIN_THRESH:
 
                         if len(misclassif_result_dict[directions[ts_labels]])<2:
                             misclassif_result_dict[directions[ts_labels]].append(cropped_test_images)
+                            misclassif_prediction_result_dict[directions[ts_labels]].append(test_prediction)
                         else:
-
                             misclassif_filled[directions[ts_labels]]=True
 
                     #print(classif_filled)
@@ -235,26 +253,27 @@ def save_classif_and_misclassif(main_dir, epoch):
 
                 cnn_store_classif_results_as_images(
                     train_env_idx, classif_result_dict,misclassif_result_dict,
-                    main_dir + os.sep + config.ACTIVATION_MAP_DIR + os.sep + 'test_cnn_model'
+                    classif_prediction_result_dict, misclassif_prediction_result_dict,
+                    main_dir + os.sep + config.CLASSIF_RESULT_DIR + os.sep + 'test_cnn_model'
                 )
 
 
-def cnn_store_classif_results_as_images(train_env_idx, classif_reults, misclassif_results, filename_prefix):
+def cnn_store_classif_results_as_images(train_env_idx, classif_reults, misclassif_results, classif_prediction_results, misclassif_prediction_results, filename_prefix):
     classif_rows = 3
     misclassif_rows = 2
-    directions = ['left','straight','right']
+    directions = ['right','straight','left']
 
-    nrows, ncols = classif_rows + misclassif_rows, 3
+    nrows, ncols = (classif_rows + misclassif_rows)*2, 3
 
     # Setting figure size
     fig = plt.figure(1)
-    padding = 0.05
-    fig_w = ncols * 1.0 + (ncols + 1) * padding
-    fig_h = nrows * 0.7 + (nrows + 1) * padding
+    padding = 0.0
+    fig_w = ncols * 2.0 + (ncols + 1) * padding
+    fig_h = nrows * 0.8 + (nrows + 1) * padding
     fig.set_size_inches(fig_w, fig_h)
 
     # Define grid spec
-    gs0 = gridspec.GridSpec(nrows, ncols, wspace=0.2, hspace=0.02)
+    gs0 = gridspec.GridSpec(nrows, ncols, wspace=0.1, hspace=0.0, height_ratios=[4,1,4,1,4,1,4,1,4,1])
 
     # gs1.update(wspace=0.05, hspace=0.05)  # set the spacing between axes.
     # padding = 0.1
@@ -266,48 +285,190 @@ def cnn_store_classif_results_as_images(train_env_idx, classif_reults, misclassi
     for ri in range(nrows):
         for ci in range(ncols):
             ax[ri][ci] = plt.subplot(gs0[ri, ci])
-            ax[ri][ci].axis('off')
+            if ri%2==0:
+                ax[ri][ci].axis('off')
 
     for di,direct in enumerate(directions):
-        for cri in range(classif_rows):
-            #print(classif_reults)
+        for cri in range(len(classif_reults[direct])):
+            orig_image = classif_reults[direct][cri][0, :, :, :]
+            norm_img = orig_image - np.min(orig_image)
+            norm_img = (norm_img / np.max(norm_img))
+
+            # Fixing white balance/brightness of iamges
+            norm_img = norm_img * 0.75
+            norm_img += 0.25
+
             print(di,',',cri)
-            ax[cri][di].imshow(classif_reults[direct][cri][0,:,:,:])
+            ax[cri*2][di].imshow(norm_img)
+            ax[cri*2+1][di].bar(np.arange(3),np.flip(classif_prediction_results[direct][cri],axis=0))
+            ax[cri * 2 + 1][di].set_ylim(0,0.5)
+            plt.sca(ax[cri * 2 + 1][di])
+            plt.xticks(range(3), ['L', 'S', 'R'])
+            if di != 0:
+                plt.yticks([])
 
-        for miscri in range(misclassif_rows):
-            ax[classif_rows+miscri][di].imshow(misclassif_results[direct][cri][0,:,:,:])
+        for miscri in range(len(misclassif_results[direct])):
+            print(di, ',', miscri)
+            orig_image = misclassif_results[direct][miscri][0,:,:,:]
+            norm_img = orig_image - np.min(orig_image)
+            norm_img = (norm_img / np.max(norm_img))
 
+            # Fixing white balance/brightness of iamges
+            norm_img = norm_img * 0.75
+            norm_img += 0.25
 
+            ax[(classif_rows+miscri)*2][di].imshow(norm_img)
+            ax[(classif_rows + miscri) * 2+1][di].bar(np.arange(3),np.flip(misclassif_prediction_results[direct][miscri],axis=0))
+            ax[(classif_rows + miscri) * 2 + 1][di].set_ylim(0, 0.5)
+            plt.sca(ax[(classif_rows + miscri) * 2 + 1][di])
+            plt.xticks(range(3), ['L', 'S', 'R'])
+            if di!=0:
+                plt.yticks([])
 
+    # Annotations (TOP)
+    ax[0][0].text(60., -40, 'Left',
+                  horizontalalignment='center',
+                  verticalalignment='top',
+                  fontsize=12)
 
+    ax[0][1].text(60., -40, 'Straight',
+                  horizontalalignment='center',
+                  verticalalignment='top',
+                  fontsize=12)
 
-    # Annotations
-    '''ax[3][0].text(-0.1, -2, 'Conv1',
-                  horizontalalignment='right',
+    ax[0][2].text(60., -40, 'Right',
+                  horizontalalignment='center',
+                  verticalalignment='top',
+                  fontsize=12)
+
+    # Annotations (Left)
+    ax[2][0].text(-50., 0, 'Correctly Classified (1-3 rows)',
+                  horizontalalignment='center',
                   verticalalignment='center',
-                  rotation='vertical', fontsize=20)
+                  rotation='vertical',
+                  fontsize=12)
 
-    ax[5][0].text(-0.25, -2, 'Conv2',
-                  horizontalalignment='right',
+    ax[8][0].text(-50., 20, 'Misclassified (4-5 rows)',
+                  horizontalalignment='center',
                   verticalalignment='center',
-                  rotation='vertical', fontsize=20)
-
-    ax[7][0].text(-0.5, -2, 'Conv3',
-                  horizontalalignment='right',
-                  verticalalignment='center',
-                  rotation='vertical', fontsize=20)
-
-    ax[9][0].text(-0.75, -2, 'Conv4',
-                  horizontalalignment='right',
-                  verticalalignment='center',
-                  rotation='vertical', fontsize=20)'''
+                  rotation='vertical',
+                  fontsize=12)
 
     # fig.tight_layout()
-    fig.subplots_adjust(bottom=0.01, top=0.99, right=0.9, left=0.1)
+    fig.subplots_adjust(hspace=-0.1,bottom=0.01, top=0.95, right=0.9, left=0.15)
     fig.savefig(filename_prefix + '_classif_%d.jpg' % (train_env_idx))
+    print('File saved: ',filename_prefix + '_classif_%d.jpg' % (train_env_idx))
     plt.cla()
     plt.close(fig)
 
+
+def cnn_store_classif_results_as_images_v2(train_env_idx, classif_reults, misclassif_results, classif_prediction_results, misclassif_prediction_results, filename_prefix):
+    classif_rows = 3
+    misclassif_rows = 2
+    directions = ['right','straight','left']
+
+    nrows, ncols = ((classif_rows + misclassif_rows)*5), 3*2
+
+    # Setting figure size
+    fig = plt.figure(1)
+    padding = 0.0
+    fig_w = ncols * 2.0 + (ncols + 1) * padding
+    fig_h = nrows * 0.8 + (nrows + 1) * padding
+    fig.set_size_inches(fig_w, fig_h)
+
+    # Define grid spec
+    gs0 = gridspec.GridSpec(nrows, ncols, wspace=0.1, hspace=0.0)
+
+    # gs1.update(wspace=0.05, hspace=0.05)  # set the spacing between axes.
+    # padding = 0.1
+    # fig_w = ncols * 2.0 + (ncols + 1) * padding
+    # fig_h = nrows * 1.0 + (nrows + 1) * padding
+    # fig.set_size_inches(fig_w, fig_h)
+
+    ax = [[None for ci in range(ncols//2)] for ri in range(nrows//2)]
+    for ri in range(0,nrows,5):
+        for ci in range(0,ncols,2):
+            print(ri//2,',',ci//2,': (',ri,':',ri+4,')','(',ci,':',ci+2,')')
+            print((ri // 2)+1, ',', ci // 2, ': (', ri+3, ':', ri + 5, ')', '(', ci+1, ':', ci + 2, ')')
+            ax[ri//2][ci//2] = plt.Subplot(fig,gs0[ri:ri+4, ci:ci+2])
+            ax[(ri//2)+1][ci//2] = plt.Subplot(fig,gs0[ri+4:ri+5,ci+1:ci+2])
+            fig.add_subplot(ax[ri//2][ci//2])
+
+            fig.add_subplot(ax[(ri//2)+1][ci//2])
+            ax[(ri // 2)+1][ci // 2].axis('off')
+
+    for di,direct in enumerate(directions):
+        for cri in range(len(classif_reults[direct])):
+            orig_image = classif_reults[direct][cri][0, :, :, :]
+            norm_img = orig_image - np.min(orig_image)
+            norm_img = (norm_img / np.max(norm_img))
+
+            # Fixing white balance/brightness of iamges
+            norm_img = norm_img * 0.75
+            norm_img += 0.25
+
+            print(di,',',cri)
+            ax[cri*2][di].imshow(norm_img)
+            ax[cri*2+1][di].bar(np.arange(3),np.flip(classif_prediction_results[direct][cri],axis=0))
+            ax[cri * 2 + 1][di].set_ylim(0,0.5)
+            #plt.sca(ax[cri * 2 + 1][di])
+            #plt.xticks(range(3), ['L', 'S', 'R'])
+            #if di != 0:
+            #    plt.yticks([])
+
+        for miscri in range(len(misclassif_results[direct])):
+            print(di, ',', miscri+classif_rows)
+            orig_image = misclassif_results[direct][miscri][0,:,:,:]
+            norm_img = orig_image - np.min(orig_image)
+            norm_img = (norm_img / np.max(norm_img))
+
+            # Fixing white balance/brightness of iamges
+            norm_img = norm_img * 0.75
+            norm_img += 0.25
+
+            ax[(classif_rows+miscri)*2][di].imshow(norm_img)
+            ax[(classif_rows + miscri) * 2+1][di].bar(np.arange(3),np.flip(misclassif_prediction_results[direct][miscri],axis=0))
+            ax[(classif_rows + miscri) * 2 + 1][di].set_ylim(0, 0.5)
+            #plt.sca(ax[(classif_rows + miscri) * 2 + 1][di])
+            #plt.xticks(range(3), ['L', 'S', 'R'])
+            #if di!=0:
+            #    plt.yticks([])
+
+    # Annotations (TOP)
+    ax[0][0].text(60., -40, 'Left',
+                  horizontalalignment='center',
+                  verticalalignment='top',
+                  fontsize=12)
+
+    ax[0][1].text(60., -40, 'Straight',
+                  horizontalalignment='center',
+                  verticalalignment='top',
+                  fontsize=12)
+
+    ax[0][2].text(60., -40, 'Right',
+                  horizontalalignment='center',
+                  verticalalignment='top',
+                  fontsize=12)
+
+    # Annotations (Left)
+    ax[1][0].text(-25., 0, 'Correctly Classified\n(1-3 rows)',
+                  horizontalalignment='center',
+                  verticalalignment='center',
+                  rotation='vertical',
+                  fontsize=8)
+
+    ax[3][0].text(-25., 80, 'Misclassified\n(4-5 rows)',
+                  horizontalalignment='center',
+                  verticalalignment='center',
+                  rotation='vertical',
+                  fontsize=8)
+
+    # fig.tight_layout()
+    fig.subplots_adjust(hspace=-0.1,bottom=0.01, top=0.95, right=0.9, left=0.15)
+    fig.savefig(filename_prefix + '_classif_%d.jpg' % (train_env_idx))
+    print('File saved: ',filename_prefix + '_classif_%d.jpg' % (train_env_idx))
+    plt.cla()
+    plt.close(fig)
 
 
 def save_activation_maps(main_dir,epoch):
@@ -359,7 +520,7 @@ def save_activation_maps(main_dir,epoch):
             tf_test_activation_dict = cnn_visualize_activations(hyperparam_dict,tf_test_dataset,1)
 
             for train_env_idx in range(3):
-                for step in range(50):
+                for step in range(100):
                     tr_img_id, tr_images, tr_labels = train_data_gen.sample_a_batch_from_data(train_env_idx, shuffle=True)
                     ts_img_id, ts_images, ts_labels = test_data_gen.sample_a_batch_from_data(train_env_idx, shuffle=True)
                     print('Train env idx: %d, Step %d' %(train_env_idx,step))
