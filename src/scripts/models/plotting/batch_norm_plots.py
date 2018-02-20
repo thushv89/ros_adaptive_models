@@ -71,6 +71,7 @@ for env_idx in range(3):
     ax[env_idx].plot(bn_x_axis[env_idx], bn_soft_accuracy[env_idx], color='b', label='with BN')
     #ax[env_idx].plot(bn_x_axis[env_idx], bn_hard_accuracy[env_idx], linestyle='--', color='b')
 
+ax[2].legend(bbox_to_anchor=(1.35,1))
 pylab.suptitle('Soft Accuracies in Three Environments (With BN vs W/O BN)', fontsize=24,y =0.98)
-pylab.subplots_adjust(top=0.8,left=0.05,right=0.95,bottom=0.15)
+pylab.subplots_adjust(top=0.8,left=0.05,right=0.9,bottom=0.15)
 pylab.show(block=True)
